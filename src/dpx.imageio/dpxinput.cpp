@@ -30,13 +30,11 @@
 
 #include "libdpx/DPX.h"
 #include "libdpx/DPXColorConverter.h"
-#include <OpenEXR/ImfTimeCode.h> //For TimeCode support
 
 #include "typedesc.h"
 #include "imageio.h"
 #include "fmath.h"
 #include "strutil.h"
-#include <iomanip>
 
 OIIO_PLUGIN_NAMESPACE_BEGIN
 
@@ -81,14 +79,6 @@ private:
     /// Helper function - retrieve string for libdpx descriptor
     ///
     std::string get_descriptor_string (dpx::Descriptor c);
-
-    /// Helper function - fill int array with KeyCode values
-    ///
-    void get_keycode_values (int *array);
-
-    /// Helper function - convert Imf::TimeCode to string;
-    ///
-    std::string get_timecode_string (Imf::TimeCode &tc);
 };
 
 
@@ -190,14 +180,6 @@ DPXInput::seek_subimage (int subimage, int miplevel, ImageSpec &newspec)
     }
     m_spec = ImageSpec (m_dpx.header.Width(), m_dpx.header.Height(),
         m_dpx.header.ImageElementComponentCount(subimage), typedesc);
-
-    m_spec.x = m_dpx.header.xOffset;
-    m_spec.y = m_dpx.header.yOffset;
-    if ((int)m_dpx.header.xOriginalSize > 0)
-        m_spec.full_width = m_dpx.header.xOriginalSize;
-    if ((int)m_dpx.header.yOriginalSize > 0)
-        m_spec.full_height = m_dpx.header.yOriginalSize;
-
     // fill channel names
     m_spec.channelnames.clear ();
     switch (m_dpx.header.ImageDescriptor(subimage)) {
@@ -366,7 +348,7 @@ DPXInput::seek_subimage (int subimage, int miplevel, ImageSpec &newspec)
         // libdpx's date/time format is pretty close to OIIO's (libdpx uses
         // %Y:%m:%d:%H:%M:%S%Z)
         char date[24];
-        Strutil::safe_strcpy(date, m_dpx.header.creationTimeDate, sizeof(date));
+        strcpy(date, m_dpx.header.creationTimeDate);
         date[10] = ' ';
         date[19] = 0;
         m_spec.attribute ("DateTime", date);
@@ -465,34 +447,17 @@ DPXInput::seek_subimage (int subimage, int miplevel, ImageSpec &newspec)
     if (!tmpstr.empty ())
         m_spec.attribute ("dpx:Packing", tmpstr);
 
-    if (m_dpx.header.filmManufacturingIdCode[0] != 0) {
-
-        int kc[7];
-        get_keycode_values (kc);
-        m_spec.attribute("smpte:KeyCode", TypeDesc::TypeKeyCode, kc);
-    }
-
     if (m_dpx.header.timeCode != 0xFFFFFFFF) {
-
-        unsigned int timecode[2] = {m_dpx.header.timeCode, m_dpx.header.userBits};
-        m_spec.attribute("smpte:TimeCode", TypeDesc::TypeTimeCode, timecode);
-
-        // This attribute is dpx specific and is left in for backwards compatability.
-        // Users should utilise the new smpte:TimeCode attribute instead
-        Imf::TimeCode tc(m_dpx.header.timeCode, m_dpx.header.userBits);
-        m_spec.attribute ("dpx:TimeCode", get_timecode_string(tc));
+        m_dpx.header.TimeCode(buf);
+        m_spec.attribute ("dpx:TimeCode", buf);
     }
-
-    // This attribute is dpx specific and is left in for backwards compatability.
-    // Users should utilise the new smpte:TimeCode attribute instead
     if (m_dpx.header.userBits != 0xFFFFFFFF)
         m_spec.attribute ("dpx:UserBits", m_dpx.header.userBits);
-
     if (m_dpx.header.sourceTimeDate[0]) {
         // libdpx's date/time format is pretty close to OIIO's (libdpx uses
         // %Y:%m:%d:%H:%M:%S%Z)
         char date[24];
-        Strutil::safe_strcpy(date, m_dpx.header.sourceTimeDate, sizeof(date));
+        strcpy(date, m_dpx.header.sourceTimeDate);
         date[10] = ' ';
         date[19] = 0;
         m_spec.attribute ("dpx:SourceDateTime", date);
@@ -605,17 +570,19 @@ DPXInput::close ()
 bool
 DPXInput::read_native_scanline (int y, int z, void *data)
 {
-    dpx::Block block(0, y-m_spec.y, m_dpx.header.Width () - 1, y-m_spec.y);
+    dpx::Block block(0, y, m_dpx.header.Width () - 1, y);
 
     if (m_wantRaw) {
         // fast path - just read the scanline in
-        if (!m_dpx.ReadBlock (m_subimage, (unsigned char *)data, block))
+        if (!m_dpx.ReadBlock (data, m_dpx.header.ComponentDataSize (m_subimage),
+            block, m_dpx.header.ImageDescriptor (m_subimage)))
             return false;
     } else {
         // read the scanline and convert to RGB
         void *ptr = m_dataPtr == NULL ? data : (void *)m_dataPtr;
 
-        if (!m_dpx.ReadBlock (m_subimage, (unsigned char *)ptr, block))
+        if (!m_dpx.ReadBlock (ptr, m_dpx.header.ComponentDataSize (m_subimage),
+            block, m_dpx.header.ImageDescriptor (m_subimage)))
             return false;
 
         if (!dpx::ConvertToRGB (m_dpx.header, m_subimage, ptr, data, block))
@@ -712,97 +679,6 @@ DPXInput::get_descriptor_string (dpx::Descriptor c)
         default:
             return "Undefined";
     }
-}
-
-
-
-void
-DPXInput::get_keycode_values (int *array)
-{
-    std::stringstream ss;
-
-    // Manufacturer code
-    ss << std::string(m_dpx.header.filmManufacturingIdCode, 2);
-    ss >> array[0];
-    ss.clear(); ss.str("");
-
-    // Film type
-    ss << std::string(m_dpx.header.filmType, 2);
-    ss >> array[1];
-    ss.clear(); ss.str("");
-
-    // Prefix
-    ss << std::string(m_dpx.header.prefix, 6);
-    ss >> array[2];
-    ss.clear(); ss.str("");
-
-    // Count
-    ss << std::string(m_dpx.header.count, 4);
-    ss >> array[3];
-    ss.clear(); ss.str("");
-
-    // Perforation Offset
-    ss << std::string(m_dpx.header.perfsOffset, 2);
-    ss >> array[4];
-    ss.clear(); ss.str("");
-
-    // Format
-    std::string format(m_dpx.header.format, 32);
-    int &perfsPerFrame = array[5];
-    int &perfsPerCount = array[6];
-
-    // default values
-    perfsPerFrame = 4;
-    perfsPerCount = 64;
-
-    if ( format == "8kimax" ) {
-        perfsPerFrame = 15;
-        perfsPerCount = 120;
-    }
-    else if ( format.substr(0,4) == "2kvv" || format.substr(0,4) == "4kvv" ) {
-        perfsPerFrame = 8;
-    }
-    else if ( format == "VistaVision" ) {
-        perfsPerFrame = 8;
-    }
-    else if ( format.substr(0,4) == "2k35" || format.substr(0,4) == "4k35") {
-        perfsPerFrame = 4;
-    }
-    else if ( format == "Full Aperture" ) {
-        perfsPerFrame = 4;
-    }
-    else if ( format == "Academy" ) {
-        perfsPerFrame = 4;
-    }
-    else if ( format.substr(0,7) == "2k3perf" || format.substr(0,7) == "4k3perf" ) {
-        perfsPerFrame = 3;
-    }
-    else if ( format == "3perf" ) {
-        perfsPerFrame = 3;
-    }
-}
-
-
-
-std::string
-DPXInput::get_timecode_string (Imf::TimeCode &tc)
-{
-    int values[] = {tc.hours(), tc.minutes(), tc.seconds(), tc.frame()};
-    std::stringstream ss;
-    for (int i=0; i<4; i++) {
-        std::ostringstream padded;
-        padded << std::setw(2) << std::setfill('0') << values[i];
-        ss << padded.str();
-        if (i != 3) {
-            if (i == 2) {
-                tc.dropFrame() ? ss << ';' : ss << ':';
-            }
-            else {
-                ss << ':';
-            }
-        }
-    }
-    return ss.str();
 }
 
 OIIO_PLUGIN_NAMESPACE_END

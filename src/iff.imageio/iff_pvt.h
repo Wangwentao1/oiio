@@ -142,7 +142,7 @@ namespace iff_pvt {
 class IffInput : public ImageInput {
 public:
     IffInput () { init(); }
-    virtual ~IffInput () { close(); }
+    virtual ~IffInput () { }
     virtual const char *format_name (void) const { return "iff"; }
     virtual bool open (const std::string &name, ImageSpec &spec);
     virtual bool close (void);

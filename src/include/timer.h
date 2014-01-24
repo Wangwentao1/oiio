@@ -69,17 +69,16 @@ OIIO_NAMESPACE_ENTER
 ///    another.reset ();             // reset to zero time again
 /// \endcode
 ///
-/// These are not very high-resolution timers.  A Timer begin/end pair
-/// takes somewhere in the neighborhood of 0.1 - 0.3 us (microseconds),
-/// and can vary by OS.  This means that (a) it's not useful for timing
-/// individual events near or below that resolution (things that would
-/// take only tens or hundreds of processor cycles, for example), and
-/// (b) calling it millions of times could make your program appreciably
-/// more expensive due to the timers themselves.
-///
 class Timer {
 public:
+#ifdef _WIN32
+    typedef LARGE_INTEGER value_t;
+    // Sheesh, why can't they use a standard type like stdint's int64_t?
+#elif defined(__APPLE__)
     typedef unsigned long long value_t;
+#else
+    typedef struct timeval value_t;
+#endif
 
     /// Constructor -- reset at zero, and start timing unless optional
     /// 'startnow' argument is false.
@@ -87,10 +86,6 @@ public:
     {
         if (startnow)
             start();
-        else {
-            // Initialize m_starttime to avoid warnings
-            m_starttime = 0;
-        }
     }
 
     /// Destructor.
@@ -127,7 +122,7 @@ public:
 
     /// Return just the time of the current lap (since the last call to
     /// start() or lap()), add that to the previous elapsed time, reset
-    /// current start time to now, keep the timer going (if it was).
+    /// current start tiem to now, keep the timer going (if it was).
     double lap () {
         value_t n = now();
         double r = m_ticking ? diff (m_starttime, n) : 0.0;
@@ -162,28 +157,43 @@ private:
     /// Platform-dependent grab of current time, expressed as value_t.
     ///
     value_t now (void) const {
+        value_t n;
 #ifdef _WIN32
-        LARGE_INTEGER n;
         QueryPerformanceCounter (&n);   // From MSDN web site
-        return n.QuadPart;
 #elif defined(__APPLE__)
-        return mach_absolute_time();
+        n = mach_absolute_time();
 #else
-        struct timeval t;
-        gettimeofday (&t, NULL);
-        return (unsigned long long) t.tv_sec*1000000ull + t.tv_usec;
+        gettimeofday (&n, NULL);
 #endif
+        return n;
     }
 
     /// Platform-dependent difference between two times, expressed in
     /// seconds.
     static double diff (const value_t &then, const value_t &now) {
+#ifdef _WIN32
+        // From MSDN web site
+        value_t freq;
+        QueryPerformanceFrequency (&freq);
+        return (double)(now.QuadPart - then.QuadPart) / (double)freq.QuadPart;
+#elif defined(__APPLE__)
+        // NOTE(boulos): Both this value and that of the windows
+        // counterpart above only need to be calculated once. In
+        // Manta, we stored this on the side as a scaling factor but
+        // that would require a .cpp file (meaning timer.h can't just
+        // be used as a header). It is also claimed that since
+        // Leopard, Apple returns 1 for both numer and denom.
+        mach_timebase_info_data_t time_info;
+        mach_timebase_info(&time_info);
+        double seconds_per_tick = (1e-9*static_cast<double>(time_info.numer))/
+          static_cast<double>(time_info.denom);
         value_t d = (now>then) ? now-then : then-now;
         return d * seconds_per_tick;
+#else
+        return fabs (static_cast<double>(now.tv_sec  - then.tv_sec) +
+                     static_cast<double>(now.tv_usec - then.tv_usec) / 1e6);
+#endif
     }
-
-    static double seconds_per_tick;
-    friend class TimerSetupOnce;
 };
 
 

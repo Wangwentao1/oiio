@@ -51,17 +51,12 @@
 #include <OpenEXR/ImfFloatAttribute.h>
 #include <OpenEXR/ImfMatrixAttribute.h>
 #include <OpenEXR/ImfVecAttribute.h>
-#include <OpenEXR/ImfVecAttribute.h>
-#include <OpenEXR/ImfBoxAttribute.h>
 #include <OpenEXR/ImfStringAttribute.h>
-#include <OpenEXR/ImfTimeCodeAttribute.h>
-#include <OpenEXR/ImfKeyCodeAttribute.h>
 #include <OpenEXR/ImfEnvmapAttribute.h>
 #include <OpenEXR/ImfCompressionAttribute.h>
 #include <OpenEXR/IexBaseExc.h>
 #include <OpenEXR/IexThrowErrnoExc.h>
 #ifdef USE_OPENEXR_VERSION2
-#include <OpenEXR/ImfStringVectorAttribute.h>
 #include <OpenEXR/ImfPartType.h>
 #include <OpenEXR/ImfMultiPartInputFile.h>
 #include <OpenEXR/ImfInputPart.h>
@@ -236,7 +231,7 @@ openexr_input_imageio_create ()
 // OIIO_EXPORT int openexr_imageio_version = OIIO_PLUGIN_VERSION; // it's in exroutput.cpp
 
 OIIO_EXPORT const char * openexr_input_extensions[] = {
-    "exr", "sxr", "mxr", NULL
+    "exr", NULL
 };
 
 OIIO_PLUGIN_EXPORTS_END
@@ -269,15 +264,10 @@ private:
         // Ones we don't rename -- OpenEXR convention matches ours
         m_map["wrapmodes"] = "wrapmodes";
         m_map["aperture"] = "FNumber";
-        // Ones to prefix with openexr:
-        m_map["version"] = "openexr:version";
-        m_map["chunkCount"] = "openexr:chunkCount";
-        m_map["maxSamplesPerPixel"] = "openexr:maxSamplesPerPixel";
         // Ones to skip because we handle specially
         m_map["channels"] = "";
         m_map["compression"] = "";
         m_map["dataWindow"] = "";
-        m_map["displayWindow"] = "";
         m_map["envmap"] = "";
         m_map["tiledesc"] = "";
         m_map["openexr:lineOrder"] = "";
@@ -533,17 +523,8 @@ OpenEXRInput::PartInfo::parse_header (const Imf::Header *header)
         const Imf::FloatAttribute *fattr;
         const Imf::StringAttribute *sattr;
         const Imf::M44fAttribute *mattr;
-        const Imf::V3fAttribute *v3fattr;
-        const Imf::V3iAttribute *v3iattr;
-        const Imf::V2fAttribute *v2fattr;
-        const Imf::V2iAttribute *v2iattr;
-        const Imf::Box2iAttribute *b2iattr;
-        const Imf::Box2fAttribute *b2fattr;
-        const Imf::TimeCodeAttribute *tattr;
-        const Imf::KeyCodeAttribute *kcattr;
-#ifdef USE_OPENEXR_VERSION2
-        const Imf::StringVectorAttribute *svattr;
-#endif
+        const Imf::V3fAttribute *vattr;
+        const Imf::V2fAttribute *v2attr;
         const char *name = hit.name();
         std::string oname = exr_tag_to_ooio_std[name];
         if (oname.empty())   // Empty string means skip this attrib
@@ -565,71 +546,12 @@ OpenEXRInput::PartInfo::parse_header (const Imf::Header *header)
             (mattr = header->findTypedAttribute<Imf::M44fAttribute> (name)))
             spec.attribute (oname, TypeDesc::TypeMatrix, &(mattr->value()));
         else if (type == "v3f" &&
-                 (v3fattr = header->findTypedAttribute<Imf::V3fAttribute> (name)))
-            spec.attribute (oname, TypeDesc::TypeVector, &(v3fattr->value()));
-        else if (type == "v3i" &&
-                 (v3iattr = header->findTypedAttribute<Imf::V3iAttribute> (name))) {
-            TypeDesc v3 (TypeDesc::INT, TypeDesc::VEC3, TypeDesc::VECTOR);
-            spec.attribute (oname, v3, &(v3iattr->value()));
-        }
+                 (vattr = header->findTypedAttribute<Imf::V3fAttribute> (name)))
+            spec.attribute (oname, TypeDesc::TypeVector, &(vattr->value()));
         else if (type == "v2f" &&
-                 (v2fattr = header->findTypedAttribute<Imf::V2fAttribute> (name))) {
+                 (v2attr = header->findTypedAttribute<Imf::V2fAttribute> (name))) {
             TypeDesc v2 (TypeDesc::FLOAT,TypeDesc::VEC2);
-            spec.attribute (oname, v2, &(v2fattr->value()));
-        }
-        else if (type == "v2i" &&
-                 (v2iattr = header->findTypedAttribute<Imf::V2iAttribute> (name))) {
-            TypeDesc v2 (TypeDesc::INT,TypeDesc::VEC2);
-            spec.attribute (oname, v2, &(v2iattr->value()));
-        }
-#ifdef USE_OPENEXR_VERSION2
-        else if (type == "stringvector" &&
-            (svattr = header->findTypedAttribute<Imf::StringVectorAttribute> (name))) {
-            std::vector<std::string> strvec = svattr->value();
-            std::vector<ustring> ustrvec (strvec.size());
-            for (size_t i = 0, e = strvec.size();  i < e;  ++i)
-                ustrvec[i] = strvec[i];
-            TypeDesc sv (TypeDesc::STRING, ustrvec.size());
-            spec.attribute(oname, sv, &ustrvec[0]);
-        }
-#endif
-        else if (type == "box2i" &&
-                 (b2iattr = header->findTypedAttribute<Imf::Box2iAttribute> (name))) {
-            TypeDesc bx (TypeDesc::INT, TypeDesc::VEC2, 2);
-            spec.attribute (oname, bx, &b2iattr->value());
-        }
-        else if (type == "box2f" &&
-                 (b2fattr = header->findTypedAttribute<Imf::Box2fAttribute> (name))) {
-            TypeDesc bx (TypeDesc::FLOAT, TypeDesc::VEC2, 2);
-            spec.attribute (oname, bx, &b2fattr->value());
-        }
-        else if (type == "timecode" &&
-                 (tattr = header->findTypedAttribute<Imf::TimeCodeAttribute> (name))) {
-            unsigned int timecode[2];
-            timecode[0] = tattr->value().timeAndFlags(Imf::TimeCode::TV60_PACKING); //TV60 returns unchanged _time
-            timecode[1] = tattr->value().userData();
-
-            // Elevate "timeCode" to smpte:TimeCode
-            if (oname == "timeCode")
-                oname = "smpte:TimeCode";
-            spec.attribute(oname, TypeDesc::TypeTimeCode, timecode);
-        }
-        else if (type == "keycode" &&
-                 (kcattr = header->findTypedAttribute<Imf::KeyCodeAttribute> (name))) {
-            const Imf::KeyCode *k = &kcattr->value();
-            unsigned int keycode[7];
-            keycode[0] = k->filmMfcCode();
-            keycode[1] = k->filmType();
-            keycode[2] = k->prefix();
-            keycode[3] = k->count();
-            keycode[4] = k->perfOffset();
-            keycode[5] = k->perfsPerFrame();
-            keycode[6] = k->perfsPerCount();
-
-            // Elevate "keyCode" to smpte:KeyCode
-            if (oname == "keyCode")
-                oname = "smpte:KeyCode";
-            spec.attribute(oname, TypeDesc::TypeKeyCode, keycode);
+            spec.attribute (oname, v2, &(v2attr->value()));
         }
         else {
 #if 0
@@ -637,12 +559,6 @@ OpenEXRInput::PartInfo::parse_header (const Imf::Header *header)
 #endif
         }
     }
-
-#ifdef USE_OPENEXR_VERSION2
-    // EXR "name" also gets passed along as "oiio:subimagename".
-    if (header->hasName())
-        spec.attribute ("oiio:subimagename", header->name());
-#endif
 
     initialized = true;
 }
@@ -664,12 +580,10 @@ OpenEXRInput::PartInfo::query_channels (const Imf::Header *header)
         const char* name = ci.name();
         channelnames.push_back (name);
         if (red < 0 && (Strutil::iequals(name, "R") || Strutil::iequals(name, "Red") ||
-                        Strutil::iends_with(name,".R") || Strutil::iends_with(name,".Red") ||
-                        Strutil::iequals(name, "real")))
+                        Strutil::iends_with(name,".R") || Strutil::iends_with(name,".Red")))
             red = c;
         if (green < 0 && (Strutil::iequals(name, "G") || Strutil::iequals(name, "Green") ||
-                          Strutil::iends_with(name,".G") || Strutil::iends_with(name,".Green") ||
-                          Strutil::iequals(name, "imag")))
+                          Strutil::iends_with(name,".G") || Strutil::iends_with(name,".Green")))
             green = c;
         if (blue < 0 && (Strutil::iequals(name, "B") || Strutil::iequals(name, "Blue") ||
                          Strutil::iends_with(name,".B") || Strutil::iends_with(name,".Blue")))
@@ -719,6 +633,7 @@ OpenEXRInput::PartInfo::query_channels (const Imf::Header *header)
     // Figure out data types -- choose the highest range
     spec.format = TypeDesc::UNKNOWN;
     std::vector<TypeDesc> chanformat;
+    bool differing_chanformats = false;
     for (c = 0, ci = channels.begin();  ci != channels.end();  ++c, ++ci) {
         Imf::PixelType ptype = ci.channel().type;
         TypeDesc fmt = TypeDesc::HALF;
@@ -739,22 +654,13 @@ OpenEXRInput::PartInfo::query_channels (const Imf::Header *header)
             break;
         default: ASSERT (0);
         }
+        chanformat.push_back (fmt);
         pixeltype.push_back (ptype);
         chanbytes.push_back (fmt.size());
-        if (chanformat.size() == 0)
-            chanformat.resize (spec.nchannels, fmt);
-        for (int i = 0;  i < spec.nchannels;  ++i) {
-            ASSERT ((int)spec.channelnames.size() > i);
-            if (spec.channelnames[i] == ci.name()) {
-                chanformat[i] = fmt;
-                break;
-            }
-        }
+        if (fmt != chanformat[0])
+            differing_chanformats = true;
     }
     ASSERT (spec.format != TypeDesc::UNKNOWN);
-    bool differing_chanformats = false;
-    for (int c = 1;  c < spec.nchannels;  ++c)
-        differing_chanformats |= (chanformat[c] != chanformat[0]);
     if (differing_chanformats)
         spec.channelformats = chanformat;
 }

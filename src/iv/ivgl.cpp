@@ -59,25 +59,10 @@ using boost::algorithm::iequals;
 #include "timer.h"
 
 
-static const char *
-gl_err_to_string (GLenum err)
-{  // Thanks, Dan Wexler, for this function
-    switch (err) {
-    case GL_NO_ERROR: return "No error";
-    case GL_INVALID_ENUM: return "Invalid enum";
-    case GL_INVALID_OPERATION: return "Invalid operation";
-    case GL_INVALID_VALUE: return "Invalid value";
-    case GL_OUT_OF_MEMORY: return "Out of memory";
-    case GL_INVALID_FRAMEBUFFER_OPERATION:
-        return "Invalid framebuffer operation";
-    default: return "Unknown";
-    }
-}
-
 
 #define GLERRPRINT(msg)                                           \
     for (GLenum err = glGetError();  err != GL_NO_ERROR;  err = glGetError()) \
-        std::cerr << "GL error " << msg << " " << (int)err <<  " - " << gl_err_to_string(err) << "\n";      \
+        std::cerr << "GL error " << msg << " " << (int)err <<  " - " << (const char *)gluErrorString(err) << "\n";      \
 
 
 
@@ -588,7 +573,7 @@ handle_orientation (int orientation, int width, int height,
 void
 IvGL::paintGL ()
 {
-#ifndef NDEBUG
+#ifdef DEBUG
     Timer paint_image_time;
     paint_image_time.start();
 #endif
@@ -690,7 +675,7 @@ IvGL::paintGL ()
     m_viewer.statusViewInfo->show ();
     unsetCursor ();
 
-#ifndef NDEBUG
+#ifdef DEBUG
     std::cerr << "paintGL elapsed time: " << paint_image_time() << " seconds\n";
 #endif
 }
@@ -890,7 +875,7 @@ IvGL::paint_pixelview ()
     gl_rect (-0.5f*closeupsize-2, 0.5f*closeupsize+2,
              0.5f*closeupsize+2, -0.5f*closeupsize - extraspace, -0.1f);
 
-    if (1 /*xp >= 0 && xp < img->oriented_width() && yp >= 0 && yp < img->oriented_height()*/) {
+    if (xp >= 0 && xp < img->oriented_width() && yp >= 0 && yp < img->oriented_height()) {
         // Now we print text giving the mouse coordinates and the numerical
         // values of the pixel that the mouse is over.
         QFont font;
@@ -1436,7 +1421,7 @@ IvGL::check_gl_extensions (void)
     // resources to use more than one of those at the same time.
     m_max_texture_size = std::min(m_max_texture_size, 4096);
 
-#ifndef NDEBUG
+#ifdef DEBUG
     // Report back...
     std::cerr << "OpenGL Shading Language supported: " << m_use_shaders << "\n";
     if (m_shaders_using_extensions) {

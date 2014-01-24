@@ -48,10 +48,11 @@
 #include <algorithm>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
-   typedef __int8  int8_t;
-   typedef __int16 int16_t;
-   typedef __int32 int32_t;
-   typedef __int64 int64_t;
+   typedef signed __int8  int8_t;
+   typedef signed __int16 int16_t;
+   typedef signed __int32 int32_t;
+   typedef signed __int64 int64_t;
+   
    typedef unsigned __int8  uint8_t;
    typedef unsigned __int16 uint16_t;
 # ifndef _UINT64_T
@@ -835,20 +836,6 @@ inline float radians (float deg) { return deg * (float)(M_PI / 180.0); }
 /// Convert radians to degrees
 ///
 inline float degrees (float rad) { return rad * (float)(180.0 / M_PI); }
-
-
-
-/// Fast float exp
-inline float fast_expf(float x)
-{
-#if defined(__x86_64__) && defined(__GNU_LIBRARY__) && defined(__GLIBC__ ) && defined(__GLIBC_MINOR__) && __GLIBC__ <= 2 && __GLIBC_MINOR__ < 16
-    // On x86_64, versions of glibc < 2.16 have an issue where expf is
-    // much slower than the double version.  This was fixed in glibc 2.16.
-    return static_cast<float>(std::exp(static_cast<double>(x)));
-#else
-    return std::exp(x);
-#endif
-}
 
 
 

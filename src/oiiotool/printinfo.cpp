@@ -38,8 +38,6 @@
 
 #include <boost/foreach.hpp>
 #include <boost/regex.hpp>
-#include <OpenEXR/half.h>
-#include <OpenEXR/ImathVec.h>
 
 #include "argparse.h"
 #include "strutil.h"
@@ -79,93 +77,15 @@ print_sha1 (ImageInput *input)
             printf ("    SHA-1: unable to compute, image is too big\n");
             return;
         }
-        else if (size != 0) {
-            std::vector<unsigned char> buf((size_t)size);
-            if (! input->read_image (TypeDesc::UNKNOWN /*native*/, &buf[0])) {
-                printf ("    SHA-1: unable to compute, could not read image\n");
-                return;
-            }
-            sha.appendvec (buf);
+        std::vector<unsigned char> buf((size_t)size);
+        if (! input->read_image (TypeDesc::UNKNOWN /*native*/, &buf[0])) {
+            printf ("    SHA-1: unable to compute, could not read image\n");
+            return;
         }
+        sha.appendvec (buf);
     }
 
     printf ("    SHA-1: %s\n", sha.digest().c_str());
-}
-
-
-
-static void
-dump_data (ImageInput *input)
-{
-    const ImageSpec &spec (input->spec());
-    if (spec.deep) {
-        // Special handling of deep data
-        DeepData dd;
-        if (! input->read_native_deep_image (dd)) {
-            printf ("    dump data: could not read image\n");
-            return;
-        }
-        int nc = spec.nchannels;
-        TypeDesc *types = &dd.channeltypes[0];
-        for (int z = 0, pixel = 0;  z < spec.depth;  ++z) {
-            for (int y = 0;  y < spec.height;  ++y) {
-                for (int x = 0;  x < spec.width;  ++x, ++pixel) {
-                    int nsamples = dd.nsamples[pixel];
-                    std::cout << "    Pixel (";
-                    if (spec.depth > 1 || spec.z != 0)
-                        std::cout << Strutil::format("%d, %d, %d",
-                                             x+spec.x, y+spec.y, z+spec.z);
-                    else
-                        std::cout << Strutil::format("%d, %d",
-                                                     x+spec.x, y+spec.y);
-                    std::cout << "): " << nsamples << " samples" 
-                              << (nsamples ? ":" : "");
-                    for (int s = 0;  s < nsamples;  ++s) {
-                        if (s)
-                            std::cout << " / ";
-                        for (int c = 0;  c < nc;  ++c) {
-                            std::cout << " " << spec.channelnames[c] << "=";
-                            const char *ptr = (const char *)dd.pointers[pixel*nc+c];
-                            TypeDesc t = types[c];
-                            ptr += s * t.size();
-                            if (t.basetype == TypeDesc::FLOAT) {
-                                std::cout << *(const float *)ptr;
-                            } else if (t.basetype == TypeDesc::HALF) {
-                                std::cout << *(const half *)ptr;
-                            } else if (t.basetype == TypeDesc::UINT) {
-                                std::cout << *(const unsigned int *)ptr;
-                            }
-                        }
-                    }
-                    std::cout << "\n";
-                }
-            }
-        }
-
-    } else {
-        std::vector<float> buf(spec.image_pixels() * spec.nchannels);
-        if (! input->read_image (TypeDesc::UNKNOWN /*native*/, &buf[0])) {
-            printf ("    dump data: could not read image\n");
-            return;
-        }
-        const float *ptr = &buf[0];
-        for (int z = 0;  z < spec.depth;  ++z) {
-            for (int y = 0;  y < spec.height;  ++y) {
-                for (int x = 0;  x < spec.width;  ++x) {
-                    if (spec.depth > 1 || spec.z != 0)
-                        std::cout << Strutil::format("    Pixel (%d, %d, %d):",
-                                             x+spec.x, y+spec.y, z+spec.z);
-                    else
-                        std::cout << Strutil::format("    Pixel (%d, %d):",
-                                             x+spec.x, y+spec.y);
-                    for (int c = 0;  c < spec.nchannels;  ++c, ++ptr) {
-                        std::cout << ' ' << (*ptr);
-                    }
-                    std::cout << "\n";
-                }
-            }
-        }
-    }
 }
 
 
@@ -332,68 +252,22 @@ print_stats (const std::string &filename,
         size_t npixels = dd->nsamples.size();
         size_t totalsamples = 0, emptypixels = 0;
         size_t maxsamples = 0, minsamples = std::numeric_limits<size_t>::max();
-        size_t maxsamples_npixels = 0;
-        float mindepth = std::numeric_limits<float>::max();
-        float maxdepth = -std::numeric_limits<float>::max();
-        Imath::V3i maxsamples_pixel(-1,-1,-1), minsamples_pixel(-1,-1,-1);
-        Imath::V3i mindepth_pixel(-1,-1,-1), maxdepth_pixel(-1,-1,-1);
-        size_t sampoffset = 0;
-        int depthchannel = -1;
-        for (int c = 0; c < input.nchannels(); ++c)
-            if (Strutil::iequals (originalspec.channelnames[c], "Z"))
-                depthchannel = c;
-        int xend = originalspec.x + originalspec.width;
-        int yend = originalspec.y + originalspec.height;
-        int zend = originalspec.z + originalspec.depth;
-        size_t p = 0;
-        for (int z = originalspec.z; z < zend; ++z) {
-            for (int y = originalspec.y; y < yend; ++y) {
-                for (int x = originalspec.x; x < xend; ++x, ++p) {
-                    size_t c = input.deep_samples (x, y, z);
-                    totalsamples += c;
-                    if (c == maxsamples)
-                        ++maxsamples_npixels;
-                    if (c > maxsamples) {
-                        maxsamples = c;
-                        maxsamples_pixel.setValue (x, y, z);
-                        maxsamples_npixels = 1;
-                    }
-                    if (c < minsamples)
-                        minsamples = c;
-                    if (c == 0)
-                        ++emptypixels;
-                    if (depthchannel >= 0) {
-                        for (unsigned int s = 0;  s < c;  ++s) {
-                            float d = input.deep_value (x, y, z, depthchannel, s);
-                            if (d < mindepth) {
-                                mindepth = d;
-                                mindepth_pixel.setValue (x, y, z);
-                            }
-                            if (d > maxdepth) {
-                                maxdepth = d;
-                                maxdepth_pixel.setValue (x, y, z);
-                            }
-                        }
-                    }
-                    sampoffset += c;
-                }
-            }
+        for (size_t p = 0;  p < npixels;  ++p) {
+            int c = dd->nsamples[p];
+            totalsamples += c;
+            if (c > maxsamples)
+                maxsamples = c;
+            if (c < minsamples)
+                minsamples = c;
+            if (c == 0)
+                ++emptypixels;
         }
         printf ("%sMin deep samples in any pixel : %llu\n", indent, (unsigned long long)minsamples);
         printf ("%sMax deep samples in any pixel : %llu\n", indent, (unsigned long long)maxsamples);
-        printf ("%s%llu pixel%s had the max of %llu samples, including (x=%d, y=%d)\n",
-                indent, (unsigned long long)maxsamples_npixels,
-                maxsamples_npixels > 1 ? "s" : "",
-                (unsigned long long)maxsamples,
-                maxsamples_pixel.x, maxsamples_pixel.y);
         printf ("%sAverage deep samples per pixel: %.2f\n", indent, double(totalsamples)/double(npixels));
         printf ("%sTotal deep samples in all pixels: %llu\n", indent, (unsigned long long)totalsamples);
         printf ("%sPixels with deep samples   : %llu\n", indent, (unsigned long long)(npixels-emptypixels));
         printf ("%sPixels with no deep samples: %llu\n", indent, (unsigned long long)emptypixels);
-        printf ("%sMinimum depth was %g at (%d, %d)\n", indent, mindepth,
-                mindepth_pixel.x, mindepth_pixel.y);
-        printf ("%sMaximum depth was %g at (%d, %d)\n", indent, maxdepth,
-                maxdepth_pixel.x, maxdepth_pixel.y);
     } else {
         std::vector<float> constantValues(input.spec().nchannels);
         if (isConstantColor(input, &constantValues[0])) {
@@ -596,12 +470,6 @@ print_info_subimage (int current_subimage, int max_subimages, ImageSpec &spec,
 
     if (opt.verbose)
         print_metadata (spec, filename, opt, field_re, field_exclude_re);
-
-    if (opt.dumpdata) {
-        ImageSpec tmp;
-        input->seek_subimage (current_subimage, 0, tmp);
-        dump_data (input);
-    }
 
     if (opt.compute_stats && (opt.metamatch.empty() ||
                           boost::regex_search ("stats", field_re))) {

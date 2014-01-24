@@ -71,11 +71,12 @@
 /// 
 
 #if defined(_MSC_VER) || defined(__CYGWIN__)
-  #define OIIO_IMPORT __declspec(dllimport)
-  #define OIIO_EXPORT __declspec(dllexport)
+#define OIIO_IMPORT //__declspec(dllimport)
+#define OIIO_EXPORT //__declspec(dllexport)
+
   #define OIIO_LOCAL
 #else
-  #if (10000*__GNUC__ + 100*__GNUC_MINOR__ + __GNUC_PATCHLEVEL__) > 40102
+  #if __GNUC__ >= 4
     #define OIIO_IMPORT __attribute__ ((visibility ("default")))
     #define OIIO_EXPORT __attribute__ ((visibility ("default")))
     #define OIIO_LOCAL  __attribute__ ((visibility ("hidden")))

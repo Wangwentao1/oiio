@@ -61,8 +61,8 @@ OIIO_PLUGIN_EXPORTS_BEGIN
 OIIO_PLUGIN_EXPORTS_END
 
 
-static const uint8_t JPEG_MAGIC1 = 0xff;
-static const uint8_t JPEG_MAGIC2 = 0xd8;
+static const uint32_t JPEG_MAGIC = 0xffd8ffe0, JPEG_MAGIC_OTHER_ENDIAN =  0xe0ffd8ff;
+static const uint32_t JPEG_MAGIC2 = 0xffd8ffe1, JPEG_MAGIC2_OTHER_ENDIAN =  0xe1ffd8ff;
 
 
 // For explanations of the error handling, see the "example.c" in the
@@ -121,11 +121,12 @@ JpgInput::valid_file (const std::string &filename) const
         return false;
 
     // Check magic number to assure this is a JPEG file
-    uint8_t magic[2] = {0, 0};
-    bool ok = (fread (magic, sizeof(magic), 1, fd) == 1);
+    uint32_t magic = 0;
+    bool ok = (fread (&magic, sizeof(magic), 1, fd) == 1);
     fclose (fd);
 
-    if (magic[0] != JPEG_MAGIC1 || magic[1] != JPEG_MAGIC2) {
+    if (magic != JPEG_MAGIC && magic != JPEG_MAGIC_OTHER_ENDIAN &&
+        magic != JPEG_MAGIC2 && magic != JPEG_MAGIC2_OTHER_ENDIAN) {
         ok = false;
     }
     return ok;
@@ -157,18 +158,18 @@ JpgInput::open (const std::string &name, ImageSpec &newspec)
     }
 
     // Check magic number to assure this is a JPEG file
-    uint8_t magic[2] = {0, 0};
-    if (fread (magic, sizeof(magic), 1, m_fd) != 1) {
+    uint32_t magic = 0;
+    if (fread (&magic, sizeof(magic), 1, m_fd) != 1) {
         error ("Empty file \"%s\"", name.c_str());
         close_file ();
         return false;
     }
 
     rewind (m_fd);
-    if (magic[0] != JPEG_MAGIC1 || magic[1] != JPEG_MAGIC2) {
+    if (magic != JPEG_MAGIC && magic != JPEG_MAGIC_OTHER_ENDIAN &&
+        magic != JPEG_MAGIC2 && magic != JPEG_MAGIC2_OTHER_ENDIAN) {
         close_file ();
-        error ("\"%s\" is not a JPEG file, magic number doesn't match (was 0x%x)",
-               name.c_str(), magic);
+        error ("\"%s\" is not a JPEG file, magic number doesn't match", name.c_str());
         return false;
     }
 
@@ -221,7 +222,7 @@ JpgInput::open (const std::string &name, ImageSpec &newspec)
         }
         else if (m->marker == (JPEG_APP0+1) &&
                  ! strcmp ((const char *)m->data, "http://ns.adobe.com/xap/1.0/")) {
-#ifndef NDEBUG
+#ifdef DEBUG
             std::cerr << "Found APP1 XMP! length " << m->data_length << "\n";
 #endif
             std::string xml ((const char *)m->data, m->data_length);

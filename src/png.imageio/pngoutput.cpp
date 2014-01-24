@@ -64,8 +64,6 @@ private:
     png_structp m_png;                ///< PNG read structure pointer
     png_infop m_info;                 ///< PNG image info structure pointer
     int m_color_type;                 ///< PNG color model type
-    bool m_convert_alpha;             ///< Do we deassociate alpha?
-    float m_gamma;                    ///< Gamma to use for alpha conversion
     std::vector<unsigned char> m_scratch;
     std::vector<png_text> m_pngtext;
 
@@ -74,8 +72,6 @@ private:
         m_file = NULL;
         m_png = NULL;
         m_info = NULL;
-        m_convert_alpha = true;
-        m_gamma = 1.0;
         m_pngtext.clear ();
     }
 
@@ -131,10 +127,6 @@ PNGOutput::open (const std::string &name, const ImageSpec &userspec,
     close ();  // Close any already-opened file
     m_spec = userspec;  // Stash the spec
 
-    // If not uint8 or uint16, default to uint8
-    if (m_spec.format != TypeDesc::UINT8 && m_spec.format != TypeDesc::UINT16)
-        m_spec.set_format (TypeDesc::UINT8);
-
     m_file = Filesystem::fopen (name, "wb");
     if (! m_file) {
         error ("Could not open file \"%s\"", name.c_str());
@@ -150,33 +142,9 @@ PNGOutput::open (const std::string &name, const ImageSpec &userspec,
     }
 
     png_init_io (m_png, m_file);
-    png_set_compression_level (m_png, std::max (std::min (m_spec.get_int_attribute ("png:compressionLevel", 6/* medium speed vs size tradeoff */), Z_BEST_COMPRESSION), Z_NO_COMPRESSION));
-    std::string compression = m_spec.get_string_attribute ("compression");
-    if (compression.empty ()) {
-        png_set_compression_strategy(m_png, Z_DEFAULT_STRATEGY);
-    }
-    else if (Strutil::iequals (compression, "default")) {
-        png_set_compression_strategy(m_png, Z_DEFAULT_STRATEGY);
-    }
-    else if (Strutil::iequals (compression, "filtered")) {
-        png_set_compression_strategy(m_png, Z_FILTERED);
-    }
-    else if (Strutil::iequals (compression, "huffman")) {
-        png_set_compression_strategy(m_png, Z_HUFFMAN_ONLY);
-    }
-    else if (Strutil::iequals (compression, "rle")) {
-        png_set_compression_strategy(m_png, Z_RLE);
-    }
-    else if (Strutil::iequals (compression, "fixed")) {
-        png_set_compression_strategy(m_png, Z_FIXED);
-    }
-    else {
-        png_set_compression_strategy(m_png, Z_DEFAULT_STRATEGY);
-    }
+    png_set_compression_level (m_png, 6 /* medium speed vs size tradeoff */);
 
-
-    PNG_pvt::write_info (m_png, m_info, m_color_type, m_spec, m_pngtext,
-                         m_convert_alpha, m_gamma);
+    PNG_pvt::write_info (m_png, m_info, m_color_type, m_spec, m_pngtext);
 
     return true;
 }
@@ -202,7 +170,7 @@ PNGOutput::close ()
 
 
 template <class T>
-static void
+static void 
 deassociateAlpha (T * data, int size, int channels, int alpha_channel, float gamma)
 {
     unsigned int max = std::numeric_limits<T>::max();
@@ -247,15 +215,16 @@ PNGOutput::write_scanline (int y, int z, TypeDesc format,
     }
 
     // PNG specifically dictates unassociated (un-"premultiplied") alpha
-    if (m_convert_alpha) {
+    if (m_spec.alpha_channel != -1) {
+        float gamma = m_spec.get_float_attribute ("oiio:Gamma", 1.0f);
         if (m_spec.format == TypeDesc::UINT16)
             deassociateAlpha ((unsigned short *)data, m_spec.width,
                               m_spec.nchannels, m_spec.alpha_channel,
-                              m_gamma);
+                              gamma);
         else
             deassociateAlpha ((unsigned char *)data, m_spec.width,
                               m_spec.nchannels, m_spec.alpha_channel,
-                              m_gamma);
+                              gamma);
     }
 
     // PNG is always big endian

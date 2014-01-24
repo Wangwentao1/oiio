@@ -32,7 +32,7 @@
 #include <cstdlib>
 #include <sstream>
 
-#include <OpenEXR/half.h>
+#include <half.h>
 
 #include <boost/tokenizer.hpp>
 #include <boost/foreach.hpp>
@@ -43,7 +43,7 @@
 #include "fmath.h"
 
 #include "imageio.h"
-#include <pugixml.hpp>
+#include "pugixml.hpp"
 
 
 OIIO_NAMESPACE_ENTER
@@ -575,12 +575,11 @@ namespace {  // make an anon namespace
 
 
 static std::string
-format_raw_metadata (const ImageIOParameter &p, int maxsize=16)
+format_raw_metadata (const ImageIOParameter &p)
 {
     std::string out;
     TypeDesc element = p.type().elementtype();
-    int nfull = p.type().numelements() * p.nvalues();
-    int n = std::min (nfull, maxsize);
+    int n = p.type().numelements() * p.nvalues();
     if (element == TypeDesc::STRING) {
         for (int i = 0;  i < n;  ++i) {
             const char *s = ((const char **)p.data())[i];
@@ -628,19 +627,11 @@ format_raw_metadata (const ImageIOParameter &p, int maxsize=16)
     } else if (element == TypeDesc::INT64) {
         for (int i = 0;  i < n;  ++i)
             out += Strutil::format ("%s%lld", (i ? ", " : ""), ((const long long *)p.data())[i]);
-    } else if (element == TypeDesc::UINT8) {
-        for (int i = 0;  i < n;  ++i)
-            out += Strutil::format ("%s%d", (i ? ", " : ""), int(((const unsigned char *)p.data())[i]));
-    } else if (element == TypeDesc::INT8) {
-        for (int i = 0;  i < n;  ++i)
-            out += Strutil::format ("%s%d", (i ? ", " : ""), int(((const char *)p.data())[i]));
     } else {
         out += Strutil::format ("<unknown data type> (base %d, agg %d vec %d)",
                 p.type().basetype, p.type().aggregate,
                 p.type().vecsemantics);
     }
-    if (n < nfull)
-        out += ", ...";
     return out;
 }
 
@@ -699,13 +690,9 @@ explain_apertureapex (const ImageIOParameter &p, const void *extradata)
 static std::string
 explain_ExifFlash (const ImageIOParameter &p, const void *extradata)
 {
-    int val = 0;
-    if (p.type() == TypeDesc::INT)
-        val = *(int *)p.data();
-    else if (p.type() == TypeDesc::UINT)
-        val = *(unsigned int *)p.data();
-    else return std::string();
-    return Strutil::format ("%s%s%s%s%s%s%s%s",
+    if (p.type() == TypeDesc::UINT) {
+        unsigned int val = *(unsigned int *)p.data();
+        return Strutil::format ("%s%s%s%s%s%s%s%s",
                                 (val&1) ? "flash fired" : "no flash",
                                 (val&6) == 4 ? ", no strobe return" : "",
                                 (val&6) == 6 ? ", strobe return" : "",
@@ -714,6 +701,8 @@ explain_ExifFlash (const ImageIOParameter &p, const void *extradata)
                                 (val&24) == 24 ? ", auto flash" : "",
                                 (val&32) ? ", no flash available" : "",
                                 (val&64) ? ", red-eye reduction" : "");
+    }
+    return std::string();
 }
 
 static LabelTable ExifExposureProgram_table[] = {
@@ -890,14 +879,14 @@ static ExplanationTableEntry explanation[] = {
     { NULL, NULL, NULL }
 }; 
 
-} // end anon namespace
+}; // end anon namespace
 
 
 
 std::string
 ImageSpec::metadata_val (const ImageIOParameter &p, bool human) const
 {
-    std::string out = format_raw_metadata (p, human ? 16 : 1024);
+    std::string out = format_raw_metadata (p);
 
     if (human) {
         std::string nice;

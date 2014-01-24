@@ -175,8 +175,6 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
 
     close ();  // Close any already-opened file
     m_spec = userspec;  // Stash the spec
-    if (m_spec.format == TypeDesc::UNKNOWN)
-        m_spec.format = TypeDesc::UINT8;  // Default to uint8 if unknown
 
     m_file = Filesystem::fopen (name, "wb");
     if (! m_file) {
@@ -284,7 +282,7 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
     
     std::string s = m_spec.get_string_attribute ("oiio:ColorSpace", "Unknown");
     if (Strutil::iequals(s, "Linear"))
-        Strutil::safe_strcpy (m_rla.Gamma, "1.0", sizeof(m_rla.Gamma));
+        strcpy (m_rla.Gamma, "1.0");
     else if (Strutil::iequals(s, "GammaCorrected"))
         snprintf (m_rla.Gamma, sizeof(m_rla.Gamma), "%.10f",
             m_spec.get_float_attribute ("oiio:Gamma", 1.f));
@@ -347,8 +345,8 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
 
     snprintf (m_rla.AspectRatio, sizeof(m_rla.AspectRatio), "%.10f",
         m_spec.get_float_attribute ("PixelAspectRatio", 1.f));
-    Strutil::safe_strcpy (m_rla.ColorChannel, m_spec.get_string_attribute ("rla:ColorChannel",
-        "rgb"), sizeof(m_rla.ColorChannel));
+    strcpy (m_rla.ColorChannel, m_spec.get_string_attribute ("rla:ColorChannel",
+        "rgb").c_str ());
     m_rla.FieldRendered = m_spec.get_int_attribute ("rla:FieldRendered", 0);
 
     STRING_FIELD (Time, "rla:Time");
@@ -386,7 +384,7 @@ RLAOutput::set_chromaticity (const ImageIOParameter *p, char *dst,
                 break;
         }
     } else
-        Strutil::safe_strcpy (dst, default_val, field_size);
+        strcpy (dst, default_val);
 }
 
 

@@ -97,27 +97,15 @@ object ParamValue_getitem(const ParamValue& self, int n) {
 #undef ParamValue_convert_dispatch
 }
 
-
-static std::string
-ParamValue_name(const ParamValue& self)
+ustring ParamValue_name(const ParamValue& self)
 {
-    return self.name().string();
+    return self.name();
 }
-
-
-static object
-ParamValue_value (const ParamValue& self)
-{
-    return ParamValue_getitem (self, 0);
-}
-
 
 ParamValue& ParamValueList_getitem(ParamValueList& self, int i)
 {
     return self[i];
 }
-
-
 
 void declare_paramvalue()
 {
@@ -132,7 +120,6 @@ void declare_paramvalue()
    class_<ParamValue>("ParamValue")
        .add_property("name",     &ParamValue_name)
        .add_property("type",     &ParamValue::type)
-       .add_property("value",    &ParamValue_value)
        .def("__getitem__",       &ParamValue_getitem)
        .def("__len__",           &ParamValue::nvalues)
    ;
@@ -140,7 +127,6 @@ void declare_paramvalue()
     class_<ParamValueList>("ParamValueList")
         .def("__getitem__", &ParamValueList_getitem,
             return_internal_reference<>())
-        .def("__iter__", boost::python::iterator<ParamValueList>())
         .def("__len__",     &ParamValueList::size)
         .def("grow",        &ParamValueList::grow,
             return_internal_reference<>())

@@ -2,13 +2,13 @@
 # Find libraries
 
 setup_path (THIRD_PARTY_TOOLS_HOME 
-#            "${PROJECT_SOURCE_DIR}/../external/dist/${platform}"
+#            "${PROJECT_SOURCE_DIR}/../../external/dist/${platform}"
             "unknown"
             "Location of third party libraries in the external project")
 
 # Add all third party tool directories to the include and library paths so
 # that they'll be correctly found by the various FIND_PACKAGE() invocations.
-if (THIRD_PARTY_TOOLS_HOME AND EXISTS "${THIRD_PARTY_TOOLS_HOME}")
+if (THIRD_PARTY_TOOLS_HOME AND EXISTS ${THIRD_PARTY_TOOLS_HOME})
     set (CMAKE_INCLUDE_PATH "${THIRD_PARTY_TOOLS_HOME}/include" ${CMAKE_INCLUDE_PATH})
     # Detect third party tools which have been successfully built using the
     # lock files which are placed there by the external project Makefile.
@@ -33,30 +33,40 @@ endif ()
 
 
 ###########################################################################
-# IlmBase setup
+# IlmBase and OpenEXR setup
+
+# example of using setup_var instead:
+#setup_var (ILMBASE_VERSION 1.0.1 "Version of the ILMBase library")
+setup_string (ILMBASE_VERSION 1.0.1
+              "Version of the ILMBase library")
+mark_as_advanced (ILMBASE_VERSION)
+setup_path (ILMBASE_HOME "${THIRD_PARTY_TOOLS_HOME}"
+            "Location of the ILMBase library install")
+mark_as_advanced (ILMBASE_HOME)
 
 find_package (IlmBase REQUIRED)
 
 include_directories ("${ILMBASE_INCLUDE_DIR}")
+include_directories ("${ILMBASE_INCLUDE_DIR}/OpenEXR")
 
 macro (LINK_ILMBASE target)
     target_link_libraries (${target} ${ILMBASE_LIBRARIES})
 endmacro ()
 
-# end IlmBase setup
-###########################################################################
 
-
-###########################################################################
-# OpenEXR setup
+setup_path (OPENEXR_HOME "${THIRD_PARTY_TOOLS_HOME}"
+            "Location of the OpenEXR library install")
+mark_as_advanced (OPENEXR_HOME)
 
 find_package (OpenEXR REQUIRED)
 
-if (EXISTS "${OPENEXR_INCLUDE_DIR}/OpenEXR/ImfMultiPartInputFile.h")
+if (EXISTS ${OPENEXR_INCLUDE_DIR}/OpenEXR/ImfMultiPartInputFile.h)
     add_definitions (-DUSE_OPENEXR_VERSION2=1)
     setup_string (OPENEXR_VERSION 2.0.0 "OpenEXR version number")
     if (VERBOSE)
         message (STATUS "OpenEXR version 2.x")
+    endif ()
+    if (VERBOSE)
     endif ()
 else ()
     setup_string (OPENEXR_VERSION 1.6.1 "OpenEXR version number")
@@ -66,25 +76,24 @@ else ()
 endif ()
 mark_as_advanced (OPENEXR_VERSION)
 
-include_directories ("${OPENEXR_INCLUDE_DIR}")
+include_directories (${OPENEXR_INCLUDE_DIR})
+include_directories (${OPENEXR_INCLUDE_DIR}/OpenEXR)
 macro (LINK_OPENEXR target)
     target_link_libraries (${target} ${OPENEXR_LIBRARIES})
 endmacro ()
 
-# OpenEXR setup
-###########################################################################
 
+# end IlmBase and OpenEXR setup
+###########################################################################
 
 ###########################################################################
 # Boost setup
 
 message (STATUS "BOOST_ROOT ${BOOST_ROOT}")
 
-if (NOT DEFINED Boost_ADDITIONAL_VERSIONS)
-  set (Boost_ADDITIONAL_VERSIONS "1.54" "1.53" "1.52" "1.51" "1.50"
-                                 "1.49" "1.48" "1.47" "1.46" "1.45" "1.44" 
-                                 "1.43" "1.43.0" "1.42" "1.42.0")
-endif ()
+set (Boost_ADDITIONAL_VERSIONS "1.49" "1.48" "1.47" "1.46" "1.45" "1.44" 
+                               "1.43" "1.43.0" "1.42" "1.42.0" 
+                               "1.41" "1.41.0" "1.40" "1.40.0")
 if (LINKSTATIC)
     set (Boost_USE_STATIC_LIBS   ON)
 endif ()
@@ -94,9 +103,8 @@ if (BOOST_CUSTOM)
     # N.B. For a custom version, the caller had better set up the variables
     # Boost_VERSION, Boost_INCLUDE_DIRS, Boost_LIBRARY_DIRS, Boost_LIBRARIES.
 else ()
-    set (Boost_COMPONENTS filesystem regex system thread)
-    find_package (Boost 1.42 REQUIRED 
-                  COMPONENTS ${Boost_COMPONENTS}
+    find_package (Boost 1.40 REQUIRED 
+                  COMPONENTS filesystem regex system thread
                  )
     # Try to figure out if this boost distro has Boost::python.  If we
     # include python in the component list above, cmake will abort if
@@ -142,7 +150,6 @@ else ()
 endif ()
 
 if (VERBOSE)
-    message (STATUS "BOOST_ROOT ${BOOST_ROOT}")
     message (STATUS "Boost found ${Boost_FOUND} ")
     message (STATUS "Boost version      ${Boost_VERSION}")
     message (STATUS "Boost include dirs ${Boost_INCLUDE_DIRS}")
@@ -162,6 +169,10 @@ endif ()
 
 include_directories (SYSTEM "${Boost_INCLUDE_DIRS}")
 link_directories ("${Boost_LIBRARY_DIRS}")
+
+#if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+#    add_definitions ("-Wno-parentheses")
+#endif ()
 
 # end Boost setup
 ###########################################################################
@@ -271,19 +282,15 @@ if (USE_FIELD3D)
         # N.B. For a custom version, the caller had better set up the
         # variables HDF5_INCLUDE_DIRS and HDF5_LIBRARIES.
     else ()
-        find_library (HDF5_LIBRARY
-                      NAMES hdf5
-                      PATHS "${THIRD_PARTY_TOOLS_HOME}/lib/"
-                      /usr/local/lib
-                      /opt/local/lib
-                     )
-        if (HDF5_LIBRARY)
-            set (HDF5_FOUND true)
-        endif ()
+        find_package (HDF5 COMPONENTS CXX)
     endif ()
     if (VERBOSE)
         message (STATUS "HDF5_FOUND=${HDF5_FOUND}")
-        message (STATUS "HDF5_LIBRARY=${HDF5_LIBRARY}")
+        message (STATUS "HDF5_INCLUDE_DIRS=${HDF5_INCLUDE_DIRS}")
+        message (STATUS "HDF5_C_LIBRARIES=${HDF5_C_LIBRARIES}")
+        message (STATUS "HDF5_CXX_LIBRARIES=${HDF5_CXX_LIBRARIES}")
+        message (STATUS "HDF5_LIBRARIES=${HDF5_LIBRARIES}")
+        message (STATUS "HDF5_LIBRARY_DIRS=${HDF5_LIBRARY_DIRS}")
     endif ()
 endif ()
 if (USE_FIELD3D AND HDF5_FOUND)
@@ -291,18 +298,18 @@ if (USE_FIELD3D AND HDF5_FOUND)
         message (STATUS "FIELD3D_HOME=${FIELD3D_HOME}")
     endif ()
     if (FIELD3D_HOME)
-        set (FIELD3D_INCLUDES "${FIELD3D_HOME}/include")
+        set (FIELD3D_INCLUDES ${FIELD3D_HOME}/include)
     else ()
         find_path (FIELD3D_INCLUDES Field3D/Field.h
-                   "${THIRD_PARTY_TOOLS}/include"
-                   "${PROJECT_SOURCE_DIR}/src/include"
-                   "${FIELD3D_HOME}/include"
+                   ${THIRD_PARTY_TOOLS}/include
+                   ${PROJECT_SOURCE_DIR}/include
+                   ${FIELD3D_HOME}/include
                   )
     endif ()
     find_library (FIELD3D_LIBRARY
                   NAMES Field3D
-                  PATHS "${THIRD_PARTY_TOOLS_HOME}/lib/"
-                        "${FIELD3D_HOME}/lib"
+                  PATHS ${THIRD_PARTY_TOOLS_HOME}/lib/
+                  ${FIELD3D_HOME}/lib
                  )
     if (FIELD3D_INCLUDES AND FIELD3D_LIBRARY)
         set (FIELD3D_FOUND TRUE)
@@ -311,7 +318,9 @@ if (USE_FIELD3D AND HDF5_FOUND)
             message (STATUS "Field3D library = ${FIELD3D_LIBRARY}")
         endif ()
         add_definitions ("-DUSE_FIELD3D=1")
+        include_directories ("${HDF5_INCLUDE_DIRS}")
         include_directories ("${FIELD3D_INCLUDES}")
+        # link_directories ("${HDF5_INCLUDE_DIRS}")
     else ()
         message (STATUS "Field3D not found")
         add_definitions ("-UUSE_FIELD3D")
@@ -332,57 +341,19 @@ endif()
 # end OpenJpeg setup_path
 ###########################################################################
 
-
-###########################################################################
-# LibRaw
-if (USE_LIBRAW)
-    message (STATUS "Looking for LibRaw with ${LIBRAW_PATH}")
-    if (LIBRAW_PATH)
-        # Customized path requested, don't use find_package
-        FIND_PATH(LibRaw_INCLUDE_DIR libraw.h
-                  PATHS "${LIBRAW_PATH}/include"
-                  PATH_SUFFIXES libraw
-                  NO_DEFAULT_PATH
-                 )
-        FIND_LIBRARY(LibRaw_r_LIBRARIES NAMES raw_r
-                     PATHS "${LIBRAW_PATH}/lib"
-                     NO_DEFAULT_PATH
-                    )
-    else ()
-    	find_package (LibRaw)
-    endif ()
-	if (LibRaw_r_LIBRARIES AND LibRaw_INCLUDE_DIR)
-		set (LIBRAW_FOUND TRUE)
-		include_directories (${LibRaw_INCLUDE_DIR})
-        if (VERBOSE)
-            message (STATUS "Found LibRaw, include ${LibRaw_INCLUDE_DIR}")
-        endif ()
-	else ()
-		set (LIBRAW_FOUND FALSE)
-        message (STATUS "LibRaw not found!")
-	endif()
-else ()
-    message (STATUS "Not using LibRaw")
-endif()
-
-# end LibRaw setup
-###########################################################################
-
-
-###########################################################################
 # WebP setup
 
 if (VERBOSE)
     message (STATUS "WEBP_HOME=${WEBP_HOME}")
 endif ()
 find_path (WEBP_INCLUDE_DIR webp/encode.h
-           "${THIRD_PARTY_TOOLS}/include"
-           "${PROJECT_SOURCE_DIR}/src/include"
-           "${WEBP_HOME}")
+           ${THIRD_PARTY_TOOLS}/include
+           ${PROJECT_SOURCE_DIR}/include  
+           ${WEBP_HOME}/)
 find_library (WEBP_LIBRARY
               NAMES webp
-              PATHS "${THIRD_PARTY_TOOLS_HOME}/lib/"
-              "${WEBP_HOME}"
+              PATHS ${THIRD_PARTY_TOOLS_HOME}/lib/
+              ${WEBP_HOME}/
              )
 if (WEBP_INCLUDE_DIR AND WEBP_LIBRARY)
     set (WEBP_FOUND TRUE)
@@ -414,25 +385,25 @@ endif()
 
 if (USE_OPENCV)
     find_path (OpenCV_INCLUDE_DIR opencv/cv.h
-               "${THIRD_PARTY_TOOLS}/include"
-               "${PROJECT_SOURCE_DIR}/include"
-               "${OpenCV_HOME}/include"
+               ${THIRD_PARTY_TOOLS}/include
+               ${PROJECT_SOURCE_DIR}/include  
+               ${OpenCV_HOME}/include
                /usr/local/include
                /opt/local/include
                )
     find_library (OpenCV_LIBS
                   NAMES opencv_core
-                  PATHS "${THIRD_PARTY_TOOLS_HOME}/lib/"
-                        "${PROJECT_SOURCE_DIR}/lib"
-                        "${OpenCV_HOME}/lib"
+                  PATHS ${THIRD_PARTY_TOOLS_HOME}/lib/
+                        ${PROJECT_SOURCE_DIR}/lib
+                        ${OpenCV_HOME}/lib
                         /usr/local/lib
                         /opt/local/lib
                  )
     find_library (OpenCV_LIBS_highgui
                   NAMES opencv_highgui
-                  PATHS "${THIRD_PARTY_TOOLS_HOME}/lib/"
-                        "${PROJECT_SOURCE_DIR}/lib"
-                        "${OpenCV_HOME}/lib"
+                  PATHS ${THIRD_PARTY_TOOLS_HOME}/lib/
+                        ${PROJECT_SOURCE_DIR}/lib
+                        ${OpenCV_HOME}/lib
                         /usr/local/lib
                         /opt/local/lib
                  )
@@ -477,35 +448,4 @@ endif ()
 # end Freetype setup
 ###########################################################################
 
-
-###########################################################################
-# OpenSSL Setup
-
-if (USE_OPENSSL)
-    find_package (OpenSSL)
-    if (OPENSSL_FOUND)
-        message (STATUS "OpenSSL enabled")
-        if (VERBOSE)
-            message(STATUS "OPENSSL_INCLUDES: ${OPENSSL_INCLUDE_DIR}")
-        endif ()
-        include_directories (${OPENSSL_INCLUDE_DIR})
-        add_definitions ("-DUSE_OPENSSL=1")
-    else ()
-        message (STATUS "Skipping OpenSSL support")
-    endif ()
-else ()
-    message (STATUS "OpenSSL disabled")
-endif ()
-
-# end OpenSSL setup
-###########################################################################
-
-
-###########################################################################
-# GIF
-if (USE_GIF)
-    find_package (GIF)
-endif()
-# end GIF setup_path
-###########################################################################
 

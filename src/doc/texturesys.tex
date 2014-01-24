@@ -390,20 +390,16 @@ completely unique \ImageCache will be created that is private to this
 particular \TextureSystem.
 \apiend
 
-\apiitem{static void TextureSystem::{\ce destroy} (TextureSystem *x, \\
-\bigspc\bigspc bool teardown_imagecache=false)}
+\apiitem{static void TextureSystem::{\ce destroy} (TextureSystem *x)}
 Destroys an allocated \TextureSystem, including freeing all system
-resources that it holds (such as its underlying \ImageCache).
+resources that it holds.
 
 This is necessary to ensure that the memory is freed in a way that
 matches the way it was allocated within the library.  Note that simply
 using {\cf delete} on the pointer will not always work (at least,
 not on some platforms in which a DSO/DLL can end up using a different
 allocator than the main program).
-
-If {\cf teardown_imagecache} is {\cf true}, and the \TextureSystem's
-underlying \ImageCache is the \emph{shared} one, then that \ImageCache will
-be thoroughly destroyed, not merely releasing the reference. \apiend
+\apiend
 
 \subsection{Setting options and limits for the texture system}
 \label{sec:texturesys:api:options}
@@ -1173,18 +1169,6 @@ all accessible through the same API calls.
 
 \item[\rm \kw{channels}] The number of color channels in the file 
 (an integer).
-
-\item[\rm \kw{datawindow}] 
-Returns the pixel data window of the image, which is either an array of 4
-integers (returning xmin, ymin, xmax, ymax) or an array of 6 integers
-(returning xmin, ymin, zmin, xmax, ymax, zmax). The $z$ values may be useful
-for 3D/volumetric images; for 2D images they will be 0).
-
-\item[\rm \kw{displaywindow}] 
-Returns the display (a.k.a.\ full) window of the image, which is either an
-array of 4 integers (returning xmin, ymin, xmax, ymax) or an array of 6
-integers (returning xmin, ymin, zmin, xmax, ymax, zmax). The $z$ values may
-be useful for 3D/volumetric images; for 2D images they will be 0).
 
 \item[\rm \kw{viewingmatrix}] The viewing matrix, which is a
 $4 \times 4$ matrix (an {\cf Imath::M44f}, described as {\cf

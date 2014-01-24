@@ -45,7 +45,6 @@
 #include "imagebuf.h"
 #include "imagebufalgo.h"
 #include "hash.h"
-#include "filesystem.h"
 
 OIIO_NAMESPACE_USING;
 
@@ -600,7 +599,6 @@ parse_files (int argc, const char *argv[])
 int
 main (int argc, const char *argv[])
 {
-    Filesystem::convert_native_arguments (argc, (const char **)argv);
     ArgParse ap;
     ap.options ("iinfo -- print information about images\n"
                 OIIO_INTRO_STRING "\n"

@@ -6,7 +6,6 @@
 #ifdef __linux__
 # include <endian.h>    /* attempt to define endianness */
 #endif
-
 #include "fmath.h"
 #include "hash.h"
 

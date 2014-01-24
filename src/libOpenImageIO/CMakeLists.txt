@@ -27,7 +27,6 @@ if (NOT USE_EXTERNAL_PUGIXML)
     list (APPEND libOpenImageIO_hdrs
           ../include/pugiconfig.hpp
           ../include/pugixml.hpp
-          ../include/pugixml.cpp
     )
 endif()
 
@@ -35,11 +34,7 @@ set (libOpenImageIO_srcs exif.cpp formatspec.cpp imagebuf.cpp
                           imageinput.cpp imageio.cpp imageioplugin.cpp
                           imageoutput.cpp iptc.cpp xmp.cpp
                           color_ocio.cpp
-                          imagebufalgo.cpp
-                          imagebufalgo_compare.cpp
-                          imagebufalgo_copy.cpp
-                          imagebufalgo_deep.cpp
-                          imagebufalgo_pixelmath.cpp
+                          imagebufalgo.cpp imagebufalgo_orient.cpp
                           imagebufalgo_yee.cpp imagebufalgo_opencv.cpp
                           maketexture.cpp
                           ../libutil/argparse.cpp
@@ -53,7 +48,6 @@ set (libOpenImageIO_srcs exif.cpp formatspec.cpp imagebuf.cpp
                           ../libutil/SHA1.cpp 
                           ../libutil/strutil.cpp 
                           ../libutil/sysutil.cpp 
-                          ../libutil/timer.cpp 
                           ../libutil/typedesc.cpp 
                           ../libutil/ustring.cpp 
                           ../libtexture/texturesys.cpp 
@@ -64,6 +58,20 @@ set (libOpenImageIO_srcs exif.cpp formatspec.cpp imagebuf.cpp
                           ${libOpenImageIO_hdrs}
                          )
 
+if (NOT USE_EXTERNAL_PUGIXML)
+    list (APPEND libOpenImageIO_srcs ../libutil/pugixml.cpp)
+endif ()
+
+# Include our own TBB if using it
+if (USE_TBB AND USE_EXTERNAL_TBB)
+    message (STATUS "System TBB library will be used.")
+    find_package (TBB REQUIRED)
+    include_directories (${TBB_INCLUDE_DIRS})
+    set (libOpenImageIO_srcs ${libOpenImageIO_srcs})
+elseif (USE_TBB AND NOT USE_EXTERNAL_TBB)
+    message (STATUS "Built-in TBB library will be used.")
+    set (libOpenImageIO_srcs ${libOpenImageIO_srcs} ../libutil/tbb_misc.cpp)
+endif ()
 
 # If the 'EMBEDPLUGINS' option is set, we want to compile the source for
 # all the plugins into libOpenImageIO.
@@ -93,9 +101,9 @@ if (EMBEDPLUGINS)
         ../hdr.imageio/hdrinput.cpp ../hdr.imageio/hdroutput.cpp
           ../hdr.imageio/rgbe.cpp
         ../ico.imageio/icoinput.cpp ../ico.imageio/icooutput.cpp
-        ../iff.imageio/iffinput.cpp
-          ../iff.imageio/iffoutput.cpp
-          ../iff.imageio/iff_pvt.cpp
+		../iff.imageio/iffinput.cpp
+		  ../iff.imageio/iffoutput.cpp
+		  ../iff.imageio/iff_pvt.cpp
         ../jpeg.imageio/jpeginput.cpp ../jpeg.imageio/jpegoutput.cpp
         ../png.imageio/pnginput.cpp ../png.imageio/pngoutput.cpp
         ../pnm.imageio/pnminput.cpp ../pnm.imageio/pnmoutput.cpp
@@ -134,7 +142,7 @@ if (EMBEDPLUGINS)
     find_package (ZLIB REQUIRED)
     include_directories (${PNG_INCLUDE_DIR} ${JPEG_INCLUDE_DIR})
     include_directories (${TIFF_INCLUDE_DIR} ${ZLIB_INCLUDE_DIR})
-
+	include_directories (${OPENVDB_INCLUDE} ${TBB_INCLUDE_DIR})
     add_definitions ("-DEMBED_PLUGINS=1")
 
     if (FIELD3D_FOUND AND USE_FIELD3D)
@@ -146,18 +154,8 @@ if (EMBEDPLUGINS)
     else ()
         message (STATUS "Field3D plugin will not be built")
         set (FIELD3D_LIBRARY "")
-        set (HDF5_LIBRARY "")
+        set (HDF5_LIBRARIES "")
     endif ()
-
-    if (GIF_FOUND AND USE_GIF)
-        set (libOpenImageIO_srcs ${libOpenImageIO_srcs}
-             ../gif.imageio/gifinput.cpp
-             ../gif.imageio/gifoutput.cpp)
-        include_directories (${GIF_INCLUDE_DIR})
-        add_definitions("-DUSE_GIF")
-    else()
-        message (STATUS "GIF plugin will not be built")
-    endif()
 
     if (OPENJPEG_FOUND AND USE_OPENJPEG)
         set (libOpenImageIO_srcs ${libOpenImageIO_srcs}
@@ -166,15 +164,6 @@ if (EMBEDPLUGINS)
         add_definitions("-DUSE_OPENJPEG")
     else()
         message (STATUS "Jpeg-2000 plugin will not be built")
-    endif()
-    
-    if (LIBRAW_FOUND AND USE_LIBRAW)
-        set (libOpenImageIO_srcs ${libOpenImageIO_srcs}
-            ../raw.imageio/rawinput.cpp ../raw.imageio/rawoutput.cpp)
-        include_directories (${LibRaw_INCLUDE_DIR})
-        add_definitions ("-DUSE_LIBRAW=1")
-    else()
-        message (STATUS "Raw plugin will not be build")
     endif()
 
     if (WEBP_FOUND)
@@ -220,6 +209,12 @@ target_link_libraries (OpenImageIO
                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                            ${Boost_LIBRARIES})
 
+# Link against system TBB library if specified
+if (USE_TBB AND USE_EXTERNAL_TBB)
+    message (STATUS "Linking TBB: ${TBB_LIBRARIES}")
+    target_link_libraries (OpenImageIO ${TBB_LIBRARIES})
+endif ()
+
 # Include OpenColorIO if using it
 if (USE_OCIO AND OCIO_FOUND)
     message (STATUS "Linking OpenColorIO ${OCIO_LIBRARIES}")
@@ -231,12 +226,6 @@ endif ()
 if (OpenCV_FOUND)
     include_directories (${OpenCV_INCLUDE_DIR})
     target_link_libraries (OpenImageIO opencv_core opencv_highgui)
-endif ()
-
-# Include OpenSSL if using it
-if (OPENSSL_FOUND)
-    include_directories (${OPENSSL_INCLUDE_DIR})
-    target_link_libraries (OpenImageIO ${OPENSSL_LIBRARIES})
 endif ()
 
 # Include Freetype if using it
@@ -251,24 +240,18 @@ if (WIN32)
     target_link_libraries (OpenImageIO psapi.lib)
 endif ()
 link_ilmbase (OpenImageIO)
-add_dependencies (OpenImageIO "${CMAKE_CURRENT_SOURCE_DIR}/libOpenImageIO.map")
+add_dependencies (OpenImageIO ${CMAKE_CURRENT_SOURCE_DIR}/libOpenImageIO.map)
 
 if (EMBEDPLUGINS)
     target_link_libraries (OpenImageIO ${PNG_LIBRARIES} ${TIFF_LIBRARIES}
                                ${JPEG_LIBRARIES} ${ZLIB_LIBRARIES}
                                ${FIELD3D_LIBRARY}
-                               ${HDF5_LIBRARY}
+                               ${HDF5_LIBRARIES}
                                ${OPENJPEG_LIBRARIES}
                                ${WEBP_LIBRARY}
+                               ${OPENJPEG_LIBRARIES}
                           )
     link_openexr (OpenImageIO)
-    if (USE_GIF AND GIF_FOUND)
-        target_link_libraries (OpenImageIO ${GIF_LIBRARY})
-    endif ()
-
-    if (USE_LIBRAW AND LIBRAW_FOUND)
-        target_link_libraries (OpenImageIO ${LibRaw_r_LIBRARIES})
-    endif ()
 endif ()
 
 if (USE_EXTERNAL_PUGIXML)
@@ -302,32 +285,62 @@ oiio_install_targets (OpenImageIO)
 if (NOT LINKSTATIC)
     add_definitions (-DBOOST_TEST_DYN_LINK)
     add_definitions (-DPTEX_EXPORTS)
+else ()
+    add_definitions (-DPTEX_STATIC)
+    
 endif ()
 
+add_executable (imagebuf_test imagebuf_test.cpp)
+link_ilmbase (imagebuf_test)
+target_link_libraries (imagebuf_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_imagebuf imagebuf_test)
 
-if (OIIO_BUILD_TESTS)
+add_executable (imagebufalgo_test imagebufalgo_test.cpp)
+link_ilmbase (imagebufalgo_test)
+target_link_libraries (imagebufalgo_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_imagebufalgo imagebufalgo_test)
 
-    add_executable (imagebuf_test imagebuf_test.cpp)
-    set_target_properties (imagebuf_test PROPERTIES FOLDER "Unit Tests")
-    target_link_libraries (imagebuf_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    link_ilmbase (imagebuf_test)
-    add_test (unit_imagebuf imagebuf_test)
 
-    add_executable (imagebufalgo_test imagebufalgo_test.cpp)
-    set_target_properties (imagebufalgo_test PROPERTIES FOLDER "Unit Tests")
-    target_link_libraries (imagebufalgo_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    link_ilmbase (imagebufalgo_test)
-    add_test (unit_imagebufalgo imagebufalgo_test)
+add_executable (atomic_test atomic_test.cpp)
+target_link_libraries (atomic_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_atomic atomic_test)
 
-    add_executable (imagespec_test imagespec_test.cpp)
-    set_target_properties (imagespec_test PROPERTIES FOLDER "Unit Tests")
-    target_link_libraries (imagespec_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    add_test (unit_imagespec imagespec_test)
-    
-    add_executable (imagespeed_test imagespeed_test.cpp)
-    set_target_properties (imagespeed_test PROPERTIES FOLDER "Unit Tests")
-    target_link_libraries (imagespeed_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    link_ilmbase (imagespeed_test)
-    #add_test (imagespeed_test imagespeed_test)
+add_executable (spinlock_test spinlock_test.cpp)
+target_link_libraries (spinlock_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_spinlock spinlock_test)
 
-endif (OIIO_BUILD_TESTS)
+add_executable (spin_rw_test spin_rw_test.cpp)
+target_link_libraries (spin_rw_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_spin_rw spin_rw_test)
+
+add_executable (ustring_test ustring_test.cpp)
+target_link_libraries (ustring_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_ustring ustring_test)
+
+add_executable (imagespec_test imagespec_test.cpp)
+target_link_libraries (imagespec_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_imagespec imagespec_test)
+
+add_executable (strutil_test strutil_test.cpp)
+target_link_libraries (strutil_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_strutil strutil_test)
+
+add_executable (fmath_test fmath_test.cpp)
+target_link_libraries (fmath_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_fmath fmath_test)
+
+add_executable (filesystem_test filesystem_test.cpp)
+target_link_libraries (filesystem_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_filesystem filesystem_test)
+
+add_executable (optparser_test optparser_test.cpp)
+target_link_libraries (optparser_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_optparser optparser_test)
+
+add_executable (hash_test hash_test.cpp)
+target_link_libraries (hash_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+add_test (unit_hash hash_test)
+
+add_executable (imagespeed_test imagespeed_test.cpp)
+target_link_libraries (imagespeed_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+#add_test (unit_hash hash_test)

@@ -154,8 +154,6 @@ ICOOutput::open (const std::string &name, const ImageSpec &userspec,
 
     close ();  // Close any already-opened file
     m_spec = userspec;  // Stash the spec
-    if (m_spec.format == TypeDesc::UNKNOWN)  // if unknown, default to 8 bits
-        m_spec.set_format (TypeDesc::UINT8);
 
     // Check for things this format doesn't support
     if (m_spec.width < 1 || m_spec.height < 1) {
@@ -350,15 +348,10 @@ ICOOutput::open (const std::string &name, const ImageSpec &userspec,
 
     fseek (m_file, m_offset, SEEK_SET);
     if (m_want_png) {
-        // unused still, should do conversion to unassociated
-        bool convert_alpha;
-        float gamma;
-
         png_init_io (m_png, m_file);
         png_set_compression_level (m_png, Z_BEST_COMPRESSION);
 
-        PNG_pvt::write_info (m_png, m_info, m_color_type, m_spec, m_pngtext,
-                             convert_alpha, gamma);
+        PNG_pvt::write_info (m_png, m_info, m_color_type, m_spec, m_pngtext);
     } else {
         // write DIB header
         ico_bitmapinfo bmi;

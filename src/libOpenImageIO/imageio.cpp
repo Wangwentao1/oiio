@@ -40,7 +40,6 @@
 #include "typedesc.h"
 #include "strutil.h"
 #include "fmath.h"
-#include "thread.h"
 
 #include "imageio.h"
 #include "imageio_pvt.h"
@@ -51,11 +50,11 @@ OIIO_NAMESPACE_ENTER
 // Global private data
 namespace pvt {
 recursive_mutex imageio_mutex;
-atomic_int oiio_threads (boost::thread::hardware_concurrency());
+int oiio_threads = boost::thread::hardware_concurrency();
 ustring plugin_searchpath;
 std::string format_list;   // comma-separated list of all formats
 std::string extension_list;   // list of all extensions for all formats
-}
+};
 
 
 
@@ -130,14 +129,14 @@ static const int maxthreads = 64;   // reasonable maximum for sanity check
 bool
 attribute (const std::string &name, TypeDesc type, const void *val)
 {
+    spin_lock lock (attrib_mutex);
     if (name == "threads" && type == TypeDesc::TypeInt) {
-        int ot = Imath::clamp (*(const int *)val, 0, maxthreads);
-        if (ot == 0)
-            ot = boost::thread::hardware_concurrency();
-        oiio_threads = ot;
+        oiio_threads = Imath::clamp (*(const int *)val, 0, maxthreads);
+        if (oiio_threads == 0) {
+            oiio_threads = boost::thread::hardware_concurrency();
+        }
         return true;
     }
-    spin_lock lock (attrib_mutex);
     if (name == "plugin_searchpath" && type == TypeDesc::TypeString) {
         plugin_searchpath = ustring (*(const char **)val);
         return true;
@@ -150,11 +149,11 @@ attribute (const std::string &name, TypeDesc type, const void *val)
 bool
 getattribute (const std::string &name, TypeDesc type, void *val)
 {
+    spin_lock lock (attrib_mutex);
     if (name == "threads" && type == TypeDesc::TypeInt) {
         *(int *)val = oiio_threads;
         return true;
     }
-    spin_lock lock (attrib_mutex);
     if (name == "plugin_searchpath" && type == TypeDesc::TypeString) {
         *(ustring *)val = plugin_searchpath;
         return true;
@@ -203,25 +202,14 @@ _contiguize (const T *src, int nchannels, stride_t xstride, stride_t ystride, st
 
     if (depth < 1)     // Safeguard against volume-unaware clients
         depth = 1;
-    
     T *dstsave = dst;
-    if (xstride == nchannels*datasize) {
-        // Optimize for contiguous scanlines, but not from scanline to scanline
-        for (int z = 0;  z < depth;  ++z, src = (const T *)((char *)src + zstride)) {
-            const T *scanline = src;
-            for (int y = 0;  y < height;  ++y, dst += nchannels*width,
-                 scanline = (const T *)((char *)scanline + ystride))
-                memcpy(dst, scanline, xstride * width);
-        }
-    } else {
-        for (int z = 0;  z < depth;  ++z, src = (const T *)((char *)src + zstride)) {
-            const T *scanline = src;
-            for (int y = 0;  y < height;  ++y, scanline = (const T *)((char *)scanline + ystride)) {
-                const T *pixel = scanline;
-                for (int x = 0;  x < width;  ++x, pixel = (const T *)((char *)pixel + xstride))
-                    for (int c = 0;  c < nchannels;  ++c)
-                        *dst++ = pixel[c];
-            }
+    for (int z = 0;  z < depth;  ++z, src = (const T *)((char *)src + zstride)) {
+        const T *scanline = src;
+        for (int y = 0;  y < height;  ++y, scanline = (const T *)((char *)scanline + ystride)) {
+            const T *pixel = scanline;
+            for (int x = 0;  x < width;  ++x, pixel = (const T *)((char *)pixel + xstride))
+                for (int c = 0;  c < nchannels;  ++c)
+                    *dst++ = pixel[c];
         }
     }
     return dstsave;
@@ -410,46 +398,6 @@ pvt::convert_from_float (const float *src, void *dst, size_t nvals,
 }
 
 
-
-const void *
-pvt::parallel_convert_from_float (const float *src, void *dst, size_t nvals,
-                                  int quant_black, int quant_white,
-                                  int quant_min, int quant_max,
-                                  TypeDesc format, int nthreads)
-{
-    if (format.basetype == TypeDesc::FLOAT)
-        return src;
-
-    const size_t quanta = 30000;
-    if (nvals < quanta)
-        nthreads = 1;
-
-    if (nthreads <= 0)
-        nthreads = oiio_threads;
-
-    if (nthreads <= 1)
-        return convert_from_float (src, dst, nvals, quant_black, quant_white,
-                                   quant_min, quant_max, format);
-
-    boost::thread_group threads;
-    size_t blocksize = std::max (quanta, size_t((nvals + nthreads - 1) / nthreads));
-    for (size_t i = 0;  i < size_t(nthreads);  i++) {
-        size_t begin = i * blocksize;
-        if (begin >= nvals)
-            break;  // no more work to divvy up
-        size_t end = std::min (begin + blocksize, nvals);
-        threads.add_thread (new boost::thread (
-                                boost::bind (convert_from_float, src+begin,
-                                            (char *)dst+begin*format.size(),
-                                            end-begin, quant_black, quant_white,
-                                            quant_min, quant_max, format)));
-    }
-    threads.join_all ();
-    return dst;
-}
-
-
-
 bool
 convert_types (TypeDesc src_type, const void *src, 
                TypeDesc dst_type, void *dst, int n)
@@ -567,92 +515,6 @@ convert_image (int nchannels, int width, int height, int depth,
 
 
 
-namespace {
-// This nonsense is just to get around the 10-arg limits of boost::bind
-// for compilers that don't have variadic templates.
-struct convert_image_wrapper {
-    convert_image_wrapper (int nchannels, int width, int height, int depth,
-              const void *src, TypeDesc src_type,
-              stride_t src_xstride, stride_t src_ystride, stride_t src_zstride,
-              void *dst, TypeDesc dst_type,
-              stride_t dst_xstride, stride_t dst_ystride, stride_t dst_zstride,
-              int alpha_channel, int z_channel)
-        : nchannels(nchannels), width(width), height(height), depth(depth),
-          src(src), src_type(src_type), src_xstride(src_xstride),
-          src_ystride(src_ystride), src_zstride(src_zstride), dst(dst),
-          dst_type(dst_type), dst_xstride(dst_xstride),
-          dst_ystride(dst_ystride), dst_zstride(dst_zstride),
-          alpha_channel(alpha_channel), z_channel(z_channel)
-    { }
-        
-    void operator() () {
-        convert_image (nchannels, width, height, depth,
-                       src, src_type, src_xstride, src_ystride, src_zstride, 
-                       dst, dst_type, dst_xstride, dst_ystride, dst_zstride,
-                       alpha_channel, z_channel);
-    }
-private:
-    int nchannels, width, height, depth;
-    const void *src;
-    TypeDesc src_type;
-    stride_t src_xstride, src_ystride, src_zstride;
-    void *dst;
-    TypeDesc dst_type;
-    stride_t dst_xstride, dst_ystride, dst_zstride;
-    int alpha_channel, z_channel;
-};
-}  // anon namespace
-
-
-
-bool
-parallel_convert_image (int nchannels, int width, int height, int depth,
-               const void *src, TypeDesc src_type,
-               stride_t src_xstride, stride_t src_ystride,
-               stride_t src_zstride,
-               void *dst, TypeDesc dst_type,
-               stride_t dst_xstride, stride_t dst_ystride,
-               stride_t dst_zstride,
-               int alpha_channel, int z_channel, int nthreads)
-{
-    if (imagesize_t(width)*height*depth*nchannels < 30000)
-        nthreads = 1;
-
-    if (nthreads <= 0)
-        nthreads = oiio_threads;
-
-    if (nthreads <= 1)
-        return convert_image (nchannels, width, height, depth,
-                        src, src_type, src_xstride, src_ystride, src_zstride, 
-                        dst, dst_type, dst_xstride, dst_ystride, dst_zstride,
-                        alpha_channel, z_channel);
-
-    ImageSpec::auto_stride (src_xstride, src_ystride, src_zstride,
-                            src_type, nchannels, width, height);
-    ImageSpec::auto_stride (dst_xstride, dst_ystride, dst_zstride,
-                            dst_type, nchannels, width, height);
-
-    boost::thread_group threads;
-    int blocksize = std::max (1, (height + nthreads - 1) / nthreads);
-    for (int i = 0;  i < nthreads;  i++) {
-        int ybegin = i * blocksize;
-        if (ybegin >= height)
-            break;  // no more work to divvy up
-        int yend = std::min (ybegin + blocksize, height);
-        convert_image_wrapper ciw (nchannels, width, yend-ybegin, depth,
-                                   (const char *)src+src_ystride*ybegin,
-                                   src_type, src_xstride, src_ystride, src_zstride,
-                                   (char *)dst+dst_ystride*ybegin,
-                                   dst_type, dst_xstride, dst_ystride, dst_zstride,
-                                   alpha_channel, z_channel);
-        threads.add_thread (new boost::thread (ciw));
-    }
-    threads.join_all ();
-    return true;
-}
-
-
-
 bool
 copy_image (int nchannels, int width, int height, int depth,
             const void *src, stride_t pixelsize, stride_t src_xstride,
@@ -753,66 +615,6 @@ DeepData::free ()
     std::vector<void *>().swap (pointers);
     std::vector<char>().swap (data);
 }
-
-
-
-bool
-wrap_black (int &coord, int origin, int width)
-{
-    return (coord >= origin && coord < (width+origin));
-}
-
-
-bool
-wrap_clamp (int &coord, int origin, int width)
-{
-    if (coord < origin)
-        coord = origin;
-    else if (coord >= origin+width)
-        coord = origin+width-1;
-    return true;
-}
-
-
-bool
-wrap_periodic (int &coord, int origin, int width)
-{
-    coord -= origin;
-    coord %= width;
-    if (coord < 0)       // Fix negative values
-        coord += width;
-    coord += origin;
-    return true;
-}
-
-
-bool
-wrap_periodic_pow2 (int &coord, int origin, int width)
-{
-    DASSERT (ispow2(width));
-    coord -= origin;
-    coord &= (width - 1); // Shortcut periodic if we're sure it's a pow of 2
-    coord += origin;
-    return true;
-}
-
-
-bool
-wrap_mirror (int &coord, int origin, int width)
-{
-    coord -= origin;
-    if (coord < 0)
-        coord = -coord - 1;
-    int iter = coord / width;    // Which iteration of the pattern?
-    coord -= iter * width;
-    if (iter & 1)  // Odd iterations -- flip the sense
-        coord = width - 1 - coord;
-    DASSERT_MSG (coord >= 0 && coord < width,
-                 "width=%d, origin=%d, result=%d", width, origin, coord);
-    coord += origin;
-    return true;
-}
-
 
 }
 OIIO_NAMESPACE_EXIT

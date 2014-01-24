@@ -52,27 +52,22 @@ an example:
 
 \subsubsection*{Frame sequences}
 
+\NEW
 It is also possible to have \oiiotool operate on numbered sequences of
 images.  In effect, this will execute the \oiiotool command several
 times, making substitutions to the sequence arguments in turn.
 
 Image sequences are specified by having filename arguments to
-oiiotool use either a numeric range wildcard (designated such as
-``{\cf 1-10\#}'' or a {\cf printf}-like notation ``{\cf 1-10\%d}''),
-or spelling out a more complex pattern with
-{\cf --frames}.  For example:
+oiiotool use either a numeric wildcard (designated by ``{\cf \#}'') or an
+explicit numeric range (designated such as ``{\cf 1-10\#}''), or
+spelling out a more complex pattern with {\cf --frames}.  For example:
 
 \begin{code}
-    oiiotool big.1-3#.tif --resize 100x100 -o small.1-3#.tif
-
-    oiiotool big.1-3%04d.tif --resize 100x100 -o small.1-3%04d.tif
-
-    oiiotool --frames 1-3 big.#.tif --resize 100x100 -o small.#.tif
-
-    oiiotool --frames 1-3 big.%04d.tif --resize 100x100 -o small.%04d.tif
+    oiiotool big.#.tif --resize 100x100 -o small.#.tif
 \end{code}
 
-\noindent Any of those will be the equivalent of having issued the following
+\noindent If there are files {\cf big0001.tif}, {\cf big0002.tif}, and
+{\cf big0003.tif}, will be the equivalent of having issued the following
 sequence of commands:
 
 \begin{code}
@@ -81,17 +76,19 @@ sequence of commands:
     oiiotool big.0003.tif --resize 100x100 -o small.0003.tif
 \end{code}
 
-The frame range may be forwards ({\cf 1-5}) or backwards ({\cf 5-1}),
-and may give a step size to skip frames ({\cf 1-5x2} means 1, 3, 5) or
-take the complement of the step size set ({\cf 1-5y2} means 2, 4) and
-may combine subsequences with a comma.
+\noindent The following is also equivalent:
 
-If you are using the {\cf \#} or {\cf @} wildcards, then
-the wildcard characters themselves specify how many digits to pad
-with leading zeroes, with {\cf \#} indicating 4 digits and {\cf @}
-indicating one digit (these may be combined: {\cf \#@@} means 6 digits).
-An optional {\cf --framepadding} can also be used to override the number
-of padding digits.
+\begin{code}
+    oiiotool big.1-3#.tif --resize 100x100 -o small.1-3#.tif
+\end{code}
+
+You can also explicitly use the {\cf --frames} to specify a frame
+sequence very flexibly as a sequence of comma-separated subsequences,
+where each subsequence is a single frame (e.g., {\cf 100}), a range of
+frames ({\cf 100-150}), or a frame range with step size ({\cf 100-150x4}).
+An optional {\cf --framepadding} can be used to change the default number
+of digits (with leading zeroes applied) that the frame numbers should
+have.  It defaults to 4.
 For example,
 \begin{code}
     oiiotool --framepadding 3 --frames 3,4,10-20x2 blah.#.tif
@@ -100,11 +97,6 @@ For example,
 {\cf blah.010.tif}, {\cf blah.012.tif}, 
 {\cf blah.014.tif}, {\cf blah.016.tif}, {\cf blah.018.tif}, 
 {\cf blah.020.tif}.
-
-Alternately, you can use the {\cf printf} notation, such as
-\begin{code}
-    oiiotool --frames 3,4,10-20x2 blah.%03d.tif
-\end{code}
 
 
 \section{\oiiotool Tutorial / Recipes}
@@ -205,16 +197,6 @@ unsigned pixels:
     oiiotool in.tif -d uint8 -o out.tif
 \end{code}
 
-For formats that support per-channel data formats, you can override
-the format for one particular channel using {\cf -d CHNAME=TYPE}.
-For example, assuming {\cf rgbaz.exr} is a {\cf float} RGBAZ file,
-and we wish to convert it to be {\cf half} for RGBA, and {\cf float}
-for Z.  That can be accomplished with the following command:
-
-\begin{code}
-    oiiotool rgbaz.tif -d half -d Z=float -o rgbaz2.exr
-\end{code}
-
 
 \subsection*{Changing the compression}
 
@@ -261,19 +243,11 @@ Convert a scanline file to a tiled file with $16 \times 16$ tiles:
 
 \subsection*{Scale the values in an image}
 
-Reduce the brightness of the R, G, and B channels by 10\%,
+Reduce the brightness of the R, G, and B channels by 10%%,
 but leave the A channel at its original value:
 
 \begin{code}
     oiiotool original.exr --cmul 0.9,0.9,0.9,1.0 -o out.exr
-\end{code}
-
-\subsection*{Remove gamma-correction from an image}
-
-Convert a gamma-corrected image (with gamma = 2.2) to linear values.
-
-\begin{code}
-    oiiotool corrected.exr --cpow 2.2,2.2,2.2,1.0 -o linear.exr
 \end{code}
 
 \subsection*{Resize an image}
@@ -363,12 +337,12 @@ and naming it ``Z'' so it will be recognized as a $z$ channel:
 \noindent Composite foreground images over background images for a
 series of files with frame numbers in their names:
 \begin{code}
-    oiiotool fg.1-50%04d.exr bg.1-50%04d.exr --over -o comp.1-50%04d.exr
+    oiiotool fg.1-50#.exr bg.1-50#.exr --over -o comp.1-50#.exr
 \end{code}
 
 \noindent Or,
 \begin{code}
-    oiiotool --frames 1-50 fg.%04d.exr bg.%04d.exr --over -o comp.%04d.exr
+    oiiotool --frames 1-50 fg.#.exr bg.#.exr --over -o comp.#.exr
 \end{code}
 
 
@@ -389,10 +363,6 @@ Quet mode --- print out less information about what \oiiotool is doing
 (only errors).
 \apiend
 
-\apiitem{--runstats}
-Print timing and memory statistics about the work done by \oiiotool.
-\apiend
-
 \apiitem{-a}
 Performs all operations on all subimages and/or MIPmap levels of each
 input image.  Without {\cf -a}, generally each input image will really
@@ -408,6 +378,7 @@ are printed.
 
 \apiitem{--metamatch \emph{regex} \\
 --no-metamatch \emph{regex}}
+\NEW
 Regular expressions to restrict which metadata are output when using
 {\cf oiiotool --info -v}.  The {\cf --metamatch} expression causes only
 metadata whose name matches to print; non-matches are not output.  The
@@ -433,71 +404,6 @@ many pixels differed, the maximum amount, etc.).  This command does not
 alter the image stack.
 \apiend
 
-\apiitem{--colorcount \emph{r1,g1,b1,...:r2,g2,b2,...:...}}
-Given a list of colors separated by colons or semicolons, where each
-color is a list of comma-separated values (for each channel), examine
-all pixels of the current image and print a short report of how many
-pixels matched each of the colors.
-
-\noindent Optional appended arguments include:
-
-\begin{tabular}{p{10pt} p{0.75in} p{3.75in}}
-  & {\cf eps=}\emph{r,g,b,...} & Tolerance for matching colors (default:
-  0.001 for all channels).
-\end{tabular}
-
-\noindent Examples:
-
-\begin{code}
-    oiiotool test.tif --colorcount "0.792,0,0,1;0.722,0,0,1"
-\end{code}
-\noindent might produce the following output:
-\begin{code}
-   10290  0.792,0,0,1
-   11281  0.722,0,0,1
-\end{code}
-
-\noindent Notice that use of double quotes (\qkw{ }) around the list of
-color arguments, in order to make sure that the command shell does not
-interpret the semicolon ({\cf ;}) as a statement separator.  An
-alternate way to specify multiple colors is to separate them with a
-colon ({\cf :}), for example:
-\begin{code}
-    oiiotool test.tif --colorcount 0.792,0,0,1:0.722,0,0,1
-\end{code}
-
-\noindent Another example:
-
-\begin{code}
-    oiiotool test.tif --colorcount:eps=.01,.01,.01,1000 "0.792,0,0,1"
-\end{code}
-
-\noindent This example sets a larger epsilon for the R, G, and B 
-channels (so that, for example, a pixel with value [0.795,0,0] would
-also match), and by setting the epsilon to 1000 for the alpha channel,
-it effectively ensures that alpha will not be considered in the matching
-of pixels to the color value.
-\apiend
-
-\apiitem{--rangecheck \emph{Rlow,Glow,Blow,...}  \emph{Rhi,Bhi,Ghi,...}}
-Given a two colors (each a comma-separated list of values for each
-channel), print a count of the number of pixels in the image that has
-channel values outside the [low,hi] range.  Any channels not
-specified will assume a low of 0.0 and high of 1.0.
-
-\noindent Example:
-
-\begin{code}
-    oiiotool test.exr --rangecheck 0,0,0 1,1,1
-\end{code}
-\noindent might produce the following output:
-\begin{code}
-     0  < 0,0,0
-   221  > 1,1,1
- 65315  within range
-\end{code}
-\apiend
-
 \apiitem{--no-clobber}
 Sets ``no clobber'' mode, in which existing images on disk will never be 
 overridden, even if the {\cf -o} command specifies that file.
@@ -511,8 +417,8 @@ present in the hardware.
 
 \apiitem{--frames \emph{seq}\\
 --framepadding \emph{n}}
-Describes the frame range to substitute for the {\cf \#} or {\cf \%0Nd} 
-numeric wildcards.  The
+\NEW
+Describes the frame range to substitute for the {\cf \#} wildcard.  The
 sequence is a comma-separated list of subsequences; each subsequence
 is a single frame (e.g., {\cf 100}), a range of frames ({\cf 100-150}),
 or a frame range with step ({\cf 100-150x4} means {\cf  100,104,108,...}).
@@ -569,17 +475,12 @@ Outputs the current image to the named file.  This does not remove the
 current image, it merely saves a copy of it.
 \apiend
 
-\apiitem{-d {\rm \emph{datatype}} \\
--d {\rm \emph{channelname}{\cf =}\emph{datatype}}}
+\apiitem{-d {\rm \emph{datatype}}}
 
-Attempts to set the pixel data type of all subsequent outputs.  If no
-channel is named, sets \emph{all} channels to be the specified data
-type.  If a specific channel is named, then the data type will be
-overridden for just that channel (multiple {\cf -d} commands may be
-used).
-
-Valid types are: {\cf uint8}, {\cf sint8}, 
+Attempts to set the pixel data type of all subsequent outputs.  Valid
+choices are: {\cf uint8}, {\cf sint8}, 
 {\cf uint16}, {\cf sint16}, {\cf  half}, {\cf float}, {\cf double}.
+
 The types {\cf uint10} and {\cf uint12} may be used to request 10- or
 12-bit unsigned integers.  If the output file format does not support
 them, {\cf uint16} will be substituted.
@@ -663,15 +564,6 @@ black as necessary when written to formats that don't support the
 concepts of pixel data windows and full/display windows.  This is a
 non-issue for file formats that support these concepts, such as OpenEXR.
 \apiend
-
-\apiitem{--autotrim}
-For subsequent outputs, if the output format supports separate pixel
-data and full/display windows, automatically trim the output so that
-it writes the minimal data window that contains all the non-zero valued
-pixels.  In other words, trim off any all-black border rows and columns
-before writing the file.
-\apiend
-
 
 \section{\oiiotool commands that change the current image metadata}
 
@@ -806,7 +698,42 @@ list will not be changed.  For example,
 \apiend
 
 
-\section{\oiiotool commands that shuffle channels or subimages}
+\section{\oiiotool commands that adjust the image stack}
+
+\apiitem{--pop}
+Pop the image stack, discarding the current image and thereby
+making the next image on the stack into the new current image.
+\apiend
+
+\apiitem{--dup}
+Duplicate the current image and push the duplicate on the stack.
+Note that this results in both the current and the next image 
+on the stack being identical copies.
+\apiend
+
+\apiitem{--swap}
+\NEW
+Swap the current image and the next one on the stack.
+\apiend
+
+\apiitem{--ch {\rm \emph{channellist}}}
+Replaces the top image with a new copy whose channels have been 
+reordered as given by the \emph{channellist}.  The {\cf channellist}
+is a comma-separated list of channel names and/or numbers (e.g., 
+\qkw{R,G,B}, \qkw{A}, \qkw{B,G,R}, \qkw{4,5,6,A}).  Channel numbers outside
+the valid range of input channels, or unknown names, will be replaced
+by black channels.
+\NEW A channel designation beginning with the {\cf =} character and followed
+by a number is a \emph{literal value} that will be used to fill that
+channel.  If the \emph{channellist} is shorter than the number of
+channels in the source image, unspecified channels will be omitted.
+\apiend
+
+\apiitem{--chappend}
+\NEW
+Replaces the top two images on the stack with a new image comprised of
+the channels of both images appended together.
+\apiend
 
 \apiitem{--selectmip {\rm \emph{level}}}
 If the current image is MIP-mapped, replace the current image with a new
@@ -827,61 +754,6 @@ If the current image has multiple subimages, replace the current image
 with a new image consisting of only the given subimage.
 \apiend
 
-\apiitem{--siappend {\rm \emph{n}}}
-Replaces the two two images on the stack with a new image comprised of the
-subimages of both images appended together.
-\apiend
-
-\apiitem{--ch {\rm \emph{channellist}}}
-Replaces the top image with a new copy whose channels have been 
-reordered as given by the \emph{channellist}.  The {\cf channellist}
-is a comma-separated list of channel names and/or numbers (e.g., 
-\qkw{R,G,B}, \qkw{A}, \qkw{B,G,R}, \qkw{4,5,6,A}).  Channel numbers outside
-the valid range of input channels, or unknown names, will be replaced
-by black channels.
-
-A channel designation beginning with the {\cf =} character and followed
-by a number is a \emph{literal value} that will be used to fill that
-channel.  If the \emph{channellist} is shorter than the number of
-channels in the source image, unspecified channels will be omitted.
-\apiend
-
-\apiitem{--chappend}
-Replaces the top two images on the stack with a new image comprised of
-the channels of both images appended together.
-\apiend
-
-\apiitem{--flatten}
-\index{deep images}
-If the top image is ``deep,'' then ``flatten'' it by compositing the depth
-samples in each pixel.
-\apiend
-
-
-\section{\oiiotool commands that adjust the image stack}
-
-\apiitem{--pop}
-Pop the image stack, discarding the current image and thereby
-making the next image on the stack into the new current image.
-\apiend
-
-\apiitem{--dup}
-Duplicate the current image and push the duplicate on the stack.
-Note that this results in both the current and the next image 
-on the stack being identical copies.
-\apiend
-
-\apiitem{--swap}
-Swap the current image and the next one on the stack.
-\apiend
-
-\apiitem{--label {\rm \emph{name}}}
-\NEW % 1.4
-Gives a name to (and saves) the current image at the top of the stack.
-Thereafter, the label name may be used to refer to that saved image,
-in the usual manner that an ordinary input image would be specified by
-filename.
-\apiend
 
 
 \section{\oiiotool commands that make entirely new images}
@@ -931,7 +803,7 @@ The patterns recognized include the following:
 
 \apiitem{--pattern constant:color=0.3,0.5,0.1,1.0 640x480 4}
 \vspace{10pt}
-A constant 4-channel, $640\times 480$ image with all pixels (0.5, 0.5,
+A constant 4-channel, $640\times 580$ image with all pixels (0.5, 0.5,
 0.1, 1).
 \apiend
 
@@ -941,29 +813,6 @@ An $512 \times 512$ RGB image with a 16-pixel-wide checker pattern.
 \apiend
 
 \apiend
-
-
-\apiitem{--kernel {\rm \emph{name size}}}
-Create new 1-channel {\cf float} image big enough to hold the named
-kernel and size (size is expressed as \emph{width}{\cf x}\emph{height},
-e.g. {\cf 5x5}).  The \emph{width} and \emph{height} are allowed to be
-floating-point numbers. The kernel image will have its origin offset so
-that the kernel center is at (0,0), and and will be normalized (the sum
-of all pixel values will be 1.0).
-
-Kernel names can be: {\cf gaussian}, {\cf sharp-gaussian}, {\cf box},
-{\cf triangle}, {\cf blackman-harris}, {\cf mitchell}, {\cf b-spline},
-{\cf disk}.  There are also {\cf catmull-rom} and {\cf lanczos3}, but
-they are fixed-size kernels that don't scale with the width, and are
-therefore probably less useful in most cases.
-
-\noindent Examples:
-
-\begin{code}
-    oiiotool --kernel gaussian 11x11 -o gaussian.exr
-\end{code}
-\apiend
-
 
 
 \apiitem{--capture}
@@ -998,87 +847,19 @@ Replace the \emph{two} top images with a new image that is the difference
 between the first and second images.
 \apiend
 
-\apiitem{--mul}
-Replace the \emph{two} top images with a new image that the
-pixel-by-pixel, channel-by-channel multiplicative product of
-the first and second images.
-\apiend
-
 \apiitem{--abs}
 Replace the current image with a new image that has each pixel
 consisting of the \emph{absolute value} of he old pixel value.
 \apiend
 
-\apiitem{--cadd {\rm \emph{value}} \\
---cadd {\rm \emph{value0,value1,value2...}}}
-Add a constant value to all the pixels in the current image.  If a
-single constant value is given, it will be added to all color channels.
-Alternatively, a series of comma-separated constant values (with no
-spaces!) may be used to specifiy a different value to add to each
-channel in the image, respectively.
-\apiend
-
 \apiitem{--cmul {\rm \emph{value}} \\
 --cmul {\rm \emph{value0,value1,value2...}}}
+\NEW
 Multiply all the pixel values in the top image by a constant value.
 If a single constant value is given, all color channels will have their values
 multiplied by the same value.  Alternatively, a series of
 comma-separated constant values (with no spaces!) may be used to specifiy a
 different multiplier for each channel in the image, respectively.
-\apiend
-
-\apiitem{--cpow {\rm \emph{value}} \\
---cpow {\rm \emph{value0,value1,value2...}}}
-\NEW % 1.4
-Raise all the pixel values in the top image to a constant power value.
-If a single constant value is given, all color channels will have their values
-raised to this power.  Alternatively, a series of
-comma-separated constant values (with no spaces!) may be used to specifiy a
-different exponent for each channel in the image, respectively.
-\apiend
-
-\apiitem{--chsum}
-Replaces the top image by a copy that contains only 1 color channel,
-whose value at each pixel is the sum of all channels of the original
-image.  Using the optional {\cf weight} allows you to customize the
-weight of each channel in the sum.
-
-\begin{tabular}{p{10pt} p{1in} p{3.5in}}
-  & {\cf weight=}\emph{r,g,...} & Specify the weight of each channel
-  (default: 1).
-\end{tabular}
-
-\noindent Example:
-\begin{code}
-    oiiotool RGB.tif --chsum:weight=.2126,.7152,.0722 -o luma.tif
-\end{code}
-\apiend
-
-\apiitem{--paste {\rm \emph{location}}}
-Takes two images -- the first is the ``foreground'' and the second is
-the ``background'' -- and uses the pixels of the foreground to replace
-those of the backgroud beginning at the upper left \emph{location}
-(expressed as {\cf +}\emph{xpos}{\cf +}\emph{ypos}, e.g., {\cf +100+50},
-or of course using {\cf -} for negative offsets).
-\apiend
-
-\apiitem{--mosaic {\rm \emph{size}}}
-Removes \emph{w}{\cf x}\emph{h} images, dictated by the
-\emph{size}, and turns them into a single image mosaic.
-Optional appended arguments
-include:
-
-\begin{tabular}{p{10pt} p{1in} p{3.5in}}
-  & {\cf pad=}\emph{num} & Select the number of pixels of black padding
-    to add between images (default: 0).
-\end{tabular}
-
-\noindent Examples:
-\begin{code}
-    oiiotool left.tif right.tif --mosaic:pad=16 2x1 -o out.tif
-
-    oiiotool 0.tif 1.tif 2.tif 3.tif 4.tif --mosaic:pad=16 2x2 -o out.tif
-\end{code}
 \apiend
 
 \apiitem{--over}
@@ -1092,6 +873,7 @@ and must contain an alpha channel.
 
 \apiitem{--zover}
 \index{depth composite}
+\NEW
 Replace the \emph{two} top images with a new image that is a \emph{depth
 composite} of the two images -- the operation is the 
 Porter/Duff ``over'' composite, but each pixel individually will choose
@@ -1124,19 +906,6 @@ Replace the current image with a new image that is both flipped and
 flopped, which is the same as a 180 degree rotation.
 \apiend
 
-\apiitem{--transpose}
-Replace the current image with a new image that is trasposed about
-the $xy$ axis (x and coordinates and size are flipped).
-\apiend
-
-\apiitem{--cshift {\rm \emph{offset}}}
-Circularly shift the pixels of the image by the given offset (expressed
-as {\cf +10+100} to move by 10 pixels horizontally and 100 pixels
-vertically, or {\cf +50-30} to move by 50 pixels horizontally and
-$-30$ pixels vertically.  \emph{Circular} shifting means that the
-pixels wrap to the other side as they shift.
-\apiend
-
 \apiitem{--crop {\rm \emph{size}}}
 Replace the current image with a new copy with the given \emph{size},
 cropping old pixels no longer needed, padding black pixels where they
@@ -1160,23 +929,6 @@ The size is in the form
 Replace the current image with a new image that is ropped or padded
 as necessary to make the pixel data window exactly cover
 the full/display window.
-\apiend
-
-\apiitem{--resample {\rm \emph{size}}}
-Replace the current image with a new image that is resampled to the
-given pixel data resolution rapidly, but at a low quality, by simply
-copying the ``closest'' pixel.  The \emph{size} is in the form 
-\\ \spc\spc \emph{width}\,{\cf x}\,\emph{height}
-\\ or~~~~ \spc \emph{scale}{\verb|%|} \\
-
-\noindent Examples: 
-
-\begin{tabular}{p{2in} p{4in}}
-    {\cf --resample 1024x768}  &     new resolution w=100, h=120 \\
-    {\cf --resample 50{\verb|%|}}  & reduce resolution to 50\verb|%| \\
-    {\cf --resample 300{\verb|%|}}  & increase resolution by 3x
-\end{tabular}
-
 \apiend
 
 \apiitem{--resize {\rm \emph{size}}}
@@ -1204,6 +956,7 @@ decreasing resolution. \\
 \apiend
 
 \apiitem{--fit {\rm \emph{size}}}
+\NEW
 Replace the current image with a new image that is resized to fit
 into the given pixel data resolution, keeping the original aspect ratio
 and padding with black pixels if the requested image size does not
@@ -1217,101 +970,8 @@ Optional appended arguments include:
  & {\cf filter=}\emph{name} & Filter name. The default is {\cf
   blackman-harris} when increasing resolution, {\cf lanczos3} when
 decreasing resolution. \\
- & {\cf pad=}\emph{p} & If the argument is nonzero, will pad with
-  black pixels to make the resulting image exactly the size specified, if
-  the source and desired size are not the same aspect ratio.
 \end{tabular}
-
-\noindent Examples:
-
-\begin{code}
-    oiiotool in.exr --fit:pad=1 640x480 -o out.exr
-
-    oiiotool in.exr --fit 1024x1024 -o out.exr
-\end{code}
 \apiend
-
-\apiitem{--convolve}
-Use the top image as a kernel to convolve the next image farther down
-the stack, replacing both with the result.
-
-\noindent Examples:
-\begin{code}
-    # Use a kernel image already prepared
-    oiiotool image.exr kernel.exr --convolve -o output.exr
-
-    # Construct a kernel image on the fly with --kernel
-    oiiotool image.exr --kernel gaussian 5x5 --convolve -o blurred.exr
-\end{code}
-\apiend
-
-\apiitem{--blur {\rm \emph{size}}}
-Blur the top image with a blur kernel of the given size expressed as
-\emph{width}{\cf x}\emph{height}.  (The sizes may be floating point 
-numbers.)
-
-Optional appended arguments include:
-
-\begin{tabular}{p{10pt} p{1in} p{3.75in}}
- & {\cf kernel=}\emph{name} & Kernel name. The default is {\cf
-  gaussian}.
-\end{tabular}
-
-\noindent Examples:
-\begin{code}
-    oiiotool image.jpg --blur 5x5 -o blurred.jpg
-
-    oiiotool image.jpg --blur:kernel=bspline 7x7 -o blurred.jpg
-\end{code}
-\apiend
-
-
-\apiitem{--unsharp}
-Unblur the top image using an ``unsharp mask.'' 
-
-Optional appended arguments include:
-
-\begin{tabular}{p{10pt} p{1in} p{3.75in}}
- & {\cf kernel=}\emph{name} & Name of the blur kernel (default: {\cf
-    gaussian}). \\
- & {\cf width=}\emph{w} & Width of the blur kernel (default: 3). \\
- & {\cf contrast=}\emph{c} & Contrast scale (default: 1.0) \\
- & {\cf threshold=}\emph{t} & Threshold for applying the difference
-  (default: 0)
-\end{tabular}
-
-\noindent Examples:
-\begin{code}
-    oiiotool image.jpg --unsharp -o sharper.jpg
-
-    oiiotool image.jpg --unsharp:width=5:contrast=1.5 -o sharper.jpg
-\end{code}
-\apiend
-
-
-\apiitem{--fft \\
---ifft}
-Performs forward and inverse unitized discrete Fourier transform.
-The forward FFT always transforms only the first channel of the
-top image on the stack, and results in a 2-channel image (with real and
-imaginary channels).  The inverse FFT transforms the first two
-channels of the top image on the stack (assuming they are real and
-imaginary, respectively) and results in a single channel result (with
-the real component only of the spatial domain result).
-
-\noindent Examples:
-\begin{code}
-    # Select the blue channel and take its DCT
-    oiiotool image.jpg --ch 2 --fft -o fft.exr
-
-    # Reconstruct from the FFT
-    oiiotool fft.exr --ifft -o reconstructed.exr
-
-    # Output the power spectrum: real^2 + imag^2
-    oiiotool fft.exr --dup --mul --chsum -o powerspectrum.exr
-\end{code}
-\apiend
-
 
 \apiitem{--fixnan {\rm \emph{streategy}}}
 Replace the top image with a copy in which any pixels that contained
@@ -1323,6 +983,7 @@ finite values within a $3 \times 3$ region surrounding the pixel.
 \apiend
 
 \apiitem{--clamp}
+\NEW
 Replace the top image with a copy in which pixel values have been
 clamped.  Optional arguments include:
 
@@ -1361,17 +1022,20 @@ corresponding channel should not be clamped.
 
 \apiitem{--rangecompress \\
 --rangeexpand}
-Range compression re-maps input values to a logarithmic scale.
-Range expansion is the inverse mapping back to a linear scale.
-Range compression and expansion only applies to color
+\NEW
+Range compression re-maps input values so that values $\le 1$ are
+unchanged, and values $> 1$ are encoded on a logarithmic scale, with a
+smooth transition between them.  Range expansion is the inverse
+mapping.  Range compression and expansion only applies to color
 channels; alpha or z channels will not be modified.
 
-By default, this transformation will happen to each color channel 
-independently.  But if the optional {\cf luma} argument is nonzero and
-the image has at least 3 channels and the first three channels are
+If the image has at least 3 channels and the first three channels are
 not alpha or depth, they will be assumed to be RGB and the pixel scaling
 will be done using the luminance and applied equally to all color
-channels. This can help to preserve color even when remapping intensity.
+channels. This helps to preserve color even when remapping intensity.
+If these conditions are not met, or if this behavior is explicitly
+turned off with the optional {\cf luma=0} modifier, the remapping will
+happen to each color channel independently.
 
 Optional appended arguments include:
 
@@ -1392,6 +1056,7 @@ pixel values.  For example,
 \apiend
 
 \apiitem{--fillholes}
+\NEW
 Replace the top image with a copy in which any pixels that had
 $\alpha < 1$ are ``filled'' in a smooth way using data from
 surrounding $\alpha > 0$ pixels, resulting in an image that is
@@ -1399,7 +1064,6 @@ $\alpha = 1$ and plausible color everywhere.
 This can be used both to fill internal ``holes'' as well as to extend an
 image out.
 \apiend
-
 
 \apiitem{--text {\rm \emph{words}}}
 Draw (rasterize) text overtop of the current image.
@@ -1436,108 +1100,17 @@ image, it only changes \oiiotool's understanding of what color
 space those those pixels are in.
 \apiend
 
-\apiitem{--colorconvert {\rm \emph{fromspace tospace}}}
-Replace the current image with a new image whose pixels are transformed
-from the named \emph{fromspace} color space into the named
-\emph{tospace} (disregarding any notion it may have previously had 
-about the color space of the current image).  
-
-If OIIO has been compiled with OpenColorIO support and the environment
-variable {\cf \$OCIO} is set to point to a valid OpenColorIO
-configuration file, you will have access to all the color spaces that
-are known by that OCIO configuration.  If {\cf \$OCIO} does not point to
-a valid configuration file or OIIO was not compiled with OCIO support,
-then the only color space transformats available are {\cf linear} to
-{\cf Rec709} (and vice versa) and {\cf linear} to {\cf sRGB} (and vice
-versa).
-
-If you ask for \oiiotool help ({\cf oiiotool --help}), at the very
-bottom you will see the list of all color spaces that \oiiotool knows
-about.
-\apiend
-
 \apiitem{--tocolorspace {\rm \emph{tospace}}}
 Replace the current image with a new image whose pixels are transformed
 from their existing color space (as best understood or guessed by OIIO)
-into the named \emph{tospace}.  This is equivalent to a use of
-{\cf oiiotool --colorconvert} where the \emph{fromspace} is
-automatically deduced.
+into the named \emph{tospace}.
 \apiend
 
-\apiitem{--ociolook {\rm \emph{lookname}}}
+\apiitem{--tocolorspace {\rm \emph{fromspace tospace}}}
 Replace the current image with a new image whose pixels are transformed
-using the named OpenColorIO look description.  Optional appended
-arguments include:
-
-\begin{tabular}{p{10pt} p{1in} p{3.75in}}
- & {\cf from=}\emph{val} & Assume the image is in the named color
-  space. If no {\cf from=} is supplied, it will try to deduce it
-  from the image's metadata or previous {\cf --iscolorspace}
-  directives. \\
- & {\cf to=}\emph{val} & Convert to the named space after applying
-  the look. \\
- & {\cf inverse=}\emph{val} & If \emph{val} is nonzero, inverts the 
-  color transformation and look application. \\
- & {\cf key=}\emph{name} & \\
- & {\cf value=}\emph{str} & Adds a key/value pair to the ``context'' that
-  OpenColorIO will used when applying the look. \\
-\end{tabular}
-
-This command is only meaningful if OIIO was compiled with OCIO support
-and the environment variable {\cf \$OCIO} is set to point to a valid
-OpenColorIO configuration file.  If you ask for \oiiotool help 
-({\cf oiiotool --help}), at the very bottom you will see the list of all
-looks that \oiiotool knows about.
-
-\noindent Examples:
-\begin{tinycode}
-  oiiotool in.jpg --ociolook:from=vd8:to=vd8:key=SHOT:value=pe0012 match -o cc.jpg
-\end{tinycode}
-
-\apiend
-
-\apiitem{--ociodisplay {\rm \emph{displayname viewname}}}
-Replace the current image with a new image whose pixels are transformed
-using the named OpenColorIO ``display'' transformation given by the
-\emph{displayname} and \emph{viewname}.  Optional appended
-arguments include:
-
-\begin{tabular}{p{10pt} p{1in} p{3.75in}}
- & {\cf from=}\emph{val} & Assume the image is in the named color
-  space. If no {\cf from=} is supplied, it will try to deduce it
-  from the image's metadata or previous {\cf --iscolorspace}
-  directives. \\
- & {\cf key=}\emph{name} & \\
- & {\cf value=}\emph{str} & Adds a key/value pair to the ``context'' that
-  OpenColorIO will used when applying the look. \\
-\end{tabular}
-
-This command is only meaningful if OIIO was compiled with OCIO support
-and the environment variable {\cf \$OCIO} is set to point to a valid
-OpenColorIO configuration file.  If you ask for \oiiotool help 
-({\cf oiiotool --help}), at the very bottom you will see the list of all
-looks that \oiiotool knows about.
-
-\noindent Examples:
-\begin{tinycode}
-  oiiotool in.exr --ociodisplay:from=lnf:key=SHOT:value=pe0012 sRGB Film -o cc.jpg
-\end{tinycode}
-
-\apiend
-
-\apiitem{--unpremult}
-Divide all color channels (those not alpha or z) of the current image by
-the alpha value, to ``un-premultiply'' them.  This presumes that the
-image starts of as ``associated alpha,'' a.k.a.\ ``premultipled.''
-Pixels in which the alpha channel is 0 will not be modified (since the
-operation is undefined in that case).  This is a no-op if there is no
-identified alpha channel.
-\apiend
-
-\apiitem{--premult}
-Multiply all color channels (those not alpha or z) of the current image
-by the alpha value, to ``premultiply'' them.  This presumes that the
-image starts of as ``unassociated alpha,'' a.k.a.\ ``non-premultipled.''
+from the named \emph{fromspace} color space into the named
+\emph{tospace} (disregarding any notion it may have previously had 
+about the color space of the current image).
 \apiend
 
 

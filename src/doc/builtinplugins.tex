@@ -110,16 +110,11 @@ OIIO Attribute & Type & DPX header data or explanation \\
 \qkw{DateTime} & string & Creation date/time \\
 \qkw{Orientation} & int & the orientation of the DPX image data (see
   \ref{metadata:orientation}) \\
+\qkw{oiio:BitsPerSample} & int & the true bits per sample of the DPX file. \\
 \qkw{compression} & string & The compression type \\
 \qkw{PixelAspectRatio} & float & pixel aspect ratio \\
-\qkw{oiio:BitsPerSample} & int & the true bits per sample of the DPX file. \\
 \qkw{oiio:Endian} & string & When writing, force a particular endianness
-                             for the output file (\qkw{little} or \qkw{big}) \\
-\qkw{smpte:TimeCode} & int[2] & SMPTE time code (vecsemantics will be
-                                marked as TIMECODE) \\
-\qkw{smpte:KeyCode} & int[7] & SMPTE key code (vecsemantics will be
-                                marked as KEYCODE) \\
-
+                             for the output file (\qkw{little} or \qkw{big})
 \end{tabular} 
 
 \noindent\begin{tabular}{p{1.8in}|p{0.65in}|p{2.75in}}
@@ -270,36 +265,7 @@ storage.  Currently, \product only supports 2D FITS data (images), not
   fields, their text will be appended to form a single attribute (of
   each) in \product's \ImageSpec.
 
-\vspace{.25in}
 
-\section{GIF}
-\label{sec:bundledplugins:gif}
-\index{GIF}
-
-GIF (Graphics Interchange Format) is an image file format developed by 
-CompuServe in 1987.  Nowadays it is widely used to display basic animations
-despite its technical limitations.
-
-%\subsubsection*{Attributes}
-\vspace{.125in}
-
-\noindent\begin{tabular}{p{1.5in}|p{0.5in}|p{3.25in}}
-\ImageSpec Attribute & Type & GIF header data or explanation \\
-\hline
-\qkw{gif:DelayMs} & int & Delay between frames in miliseconds. \\
-\qkw{gif:Interlacing} & int & Specifies if image is interlaced (0 or 1). \\
-\qkw{ImageDescription} & string & The GIF comment field.
-\end{tabular}
-
-\subsubsection*{Limitations}
-
-\begin{itemize}
-\item GIF only supports 3-channel (RGB) images and at most 8 bits per 
-channel.
-\item Each subimage can include its own palette or use global palette.
-Palettes contain up to 256 colors of which one can be used as background 
-color. It is then emulated with additional Alpha channel by \product's reader.
-\end{itemize}
 
 \vspace{.25in}
 
@@ -471,7 +437,7 @@ may be found at \url{http://www.jpeg.org/JPEG2000.htm}.
 
 JPEG-2000 is not yet widely used, so \product's support of it is 
 preliminary.  In particular, we are not yet very good at handling
-the metadata robustly.
+the metadata rebustly.
 
 %\subsubsection*{Attributes}
 \vspace{.125in}
@@ -527,10 +493,6 @@ The official OpenEXR site is \url{http://www.openexr.com/}.
     Environment} for OpenEXR environment maps.  Non-environment
   non-MIP-mapped OpenEXR files will not set this attribute. \\
 \qkw{wrapmodes} & string & wrapmodes \\
-\qkw{smpte:TimeCode} & int[2] & SMPTE time code (vecsemantics will be
-                                marked as TIMECODE) \\
-\qkw{smpte:KeyCode} & int[7] & SMPTE key code (vecsemantics will be
-                                marked as KEYCODE) \\
 %\qkw{oiio:updirection} & string & Will be set to \qkw{y} for OpenEXR
 % latlong environment maps to indicate that OpenEXR dictates a
 % right-handed, ``$y$ is up'' coordinate system. \\
@@ -795,31 +757,6 @@ files and is unable to write them.
 \qkw{oiio:BitsPerSample} & int & the true bits per sample in the PIC file.
 \end{tabular}
 
-
-
-\vspace{.25in}
-
-\section{RAW digital camera files}
-\label{sec:bundledplugins:raw}
-\index{RAW digital camera files}
-
-A variety of digital camera ``raw'' formats are supported via this
-plugin that is based on the LibRaw library ({\cf http://www.libraw.org/}).
-
-
-% FIXME - fill in more docs here
-
-\begin{comment}
-%\subsubsection*{Attributes}
-\vspace{.125in}
-
-\noindent\begin{tabular}{p{1.75in}|p{0.5in}|p{3.0in}}
-\ImageSpec Attribute & Type & PIC header data or explanation \\
-\hline
-\qkw{ImageDescription} & string & comment \\
-\qkw{oiio:BitsPerSample} & int & the true bits per sample in the PIC file.
-\end{tabular}
-\end{comment}
 
 
 \vspace{.25in}

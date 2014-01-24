@@ -1035,6 +1035,7 @@ a Z channel in {\cf float}:
 
 \subsection{Writing ``deep'' data}
 \label{sec:imageoutput:deepdata}  \index{deep data}
+\NEW
 Some image file formats (OpenEXR only, at this time) support the concept
 of ``deep'' pixels -- those containing multiple samples per pixel (and a
 potentially differing number of them in each pixel).  You can tell
@@ -1375,7 +1376,6 @@ plugins.
 
 \apiitem{bool {\ce open} (const std::string \&name, const ImageSpec \&newspec,\\
 \bigspc  OpenMode mode=Create)}
-\label{sec:imageoutputopen}
 
 Open the file with given {\kw name}, with resolution and other format
 data as given in {\kw newspec}.  This function returns {\kw true} for
@@ -1389,6 +1389,7 @@ a MIP level to the current subimage, respectively.
 
 \apiitem{bool {\ce open} (const std::string \&name, int subimages,
  const ImageSpec *specs)}
+\NEW
 Open the file with given {\cf name}, expecting to have a given total
 number of subimages, described by {\cf specs[0..subimages-1]}.  Return
 {\cf true} for success, {\cf false} for failure.  Upon success, the
@@ -1589,6 +1590,7 @@ Periodically, it will be called as follows:
 bool {\ce write_deep_tiles} (int xbegin, int xend, int ybegin, int yend,\\
 \bigspc int zbegin, int zend, const DeepData \&deepdata) \\
 bool {\ce write_deep_image} (const DeepData \&deepdata)}
+\NEW
 Write deep data for a block of scanlines, a block of tiles, or an entire
 image (analogously to the usual {\cf write_scanlines}, {\cf write_tiles},
 and {\cf write_image}, but with deep data).

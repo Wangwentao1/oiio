@@ -41,7 +41,6 @@
 #include <ctime>
 #include <limits>
 
-#include "strutil.h"
 
 #include "CineonHeader.h"
 #include "EndianSwap.h"
@@ -85,7 +84,7 @@ void cineon::GenericHeader::Reset()
 	this->magicNumber = MAGIC_COOKIE;
 	this->imageOffset = ~0;
 	EmptyString(this->version);
-	OIIO::Strutil::safe_strcpy(this->version, SPEC_VERSION, sizeof(this->version));
+	::strcpy(this->version, SPEC_VERSION);
 	fileSize = sizeof(cineon::Header);
 
 	// genericSize is the size of the file/image/orientation headers

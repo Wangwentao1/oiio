@@ -65,7 +65,7 @@ enum EnvLayout {
     LayoutLatLong, LayoutCubeThreeByTwo, LayoutCubeOneBySix, EnvLayoutLast
 };
 
-} // pvt namespace
+}; // pvt namespace
 
 
 
@@ -167,7 +167,7 @@ public:
     float rblur;              ///< Blur amount in the r direction
     float rwidth;             ///< Multiplier for derivatives in r direction
     float *dresultdr;         ///< Deriv of the result along r (if not NULL)
-
+	int thread_index;         ///< Add thread info for vdb and passed in the application
     /// Utility: Return the Wrap enum corresponding to a wrap name:
     /// "default", "black", "clamp", "periodic", "mirror".
     static Wrap decode_wrapmode (const char *name);
@@ -249,7 +249,7 @@ public:
     InterpMode interpmode;    ///< Interpolation mode
     int anisotropic;          ///< Maximum anisotropic ratio
     bool conservative_filter; ///< True == over-blur rather than alias
-
+	
     // Options that may be different for each point we're texturing
     VaryingRef<float> sblur, tblur;   ///< Blur amount
     VaryingRef<float> swidth, twidth; ///< Multiplier for derivatives
@@ -266,7 +266,7 @@ public:
     VaryingRef<float> rblur;   ///< Blur amount in the r direction
     VaryingRef<float> rwidth;  ///< Multiplier for derivatives in r direction
     float *dresultdr;          ///< Deriv of the result along r (if not NULL)
-
+	int thread_index;          ///< Add thread info for vdb and passed in the application
     /// Utility: Return the Wrap enum corresponding to a wrap name:
     /// "default", "black", "clamp", "periodic", "mirror".
     static Wrap decode_wrapmode (const char *name) {
@@ -315,12 +315,8 @@ public:
     static TextureSystem *create (bool shared=true);
 
     /// Destroy a TextureSystem that was created using
-    /// TextureSystem::create().  For the variety that takes a
-    /// teardown_imagecache parameter, if set to true it will cause the
-    /// underlying ImageCache to be fully destroyed, even if it's the
-    /// "shared" ImageCache.
+    /// TextureSystem::create().
     static void destroy (TextureSystem *x);
-    static void destroy (TextureSystem *x, bool teardown_imagecache);
 
     TextureSystem (void) { }
     virtual ~TextureSystem () { }

@@ -110,7 +110,7 @@ will be created and returned.
 
 \apiend
 
-\apiitem{static void ImageCache::{\ce destroy} (ImageCache *x, bool teardown=false)}
+\apiitem{static void ImageCache::{\ce destroy} (ImageCache *x)}
 Destroys an allocated \ImageCache, including freeing all system
 resources that it holds.
 
@@ -123,10 +123,7 @@ allocator than the main program).
 It is safe to destroy even a shared \ImageCache, as the implementation
 of {\cf destroy()} will recognize a shared one and only truly release
 its resources if it has been requested to be destroyed as many times as
-shared \ImageCache's were created.  For a shared \ImageCache, if the
-{\cf teardown} parameter is {\cf true}, it will try to truly destroy the
-shared cache if nobody else is still holding a reference (otherwise,
-it will leave it intact).
+shared \ImageCache's were created.
 \apiend
 
 \subsection{Setting options and limits for the image cache}
@@ -451,18 +448,6 @@ all accessible through the same API calls.
     TypeDesc::BASETYPE} of the data).  Note that this is not necessarily
   the same as the native data format of the file.
 
-\item[\rm \kw{datawindow}] 
-Returns the pixel data window of the image, which is either an array of 4
-integers (returning xmin, ymin, xmax, ymax) or an array of 6 integers
-(returning xmin, ymin, zmin, xmax, ymax, zmax). The $z$ values may be useful
-for 3D/volumetric images; for 2D images they will be 0).
-
-\item[\rm \kw{displaywindow}] 
-Returns the display (a.k.a.\ full) window of the image, which is either an
-array of 4 integers (returning xmin, ymin, xmax, ymax) or an array of 6
-integers (returning xmin, ymin, zmin, xmax, ymax, zmax). The $z$ values may
-be useful for 3D/volumetric images; for 2D images they will be 0).
-
 \item[\rm \kw{viewingmatrix}] The viewing matrix, which is a
 $4 \times 4$ matrix (an {\cf Imath::M44f}, described as {\cf
   TypeDesc(FLOAT,MATRIX)}).
@@ -552,6 +537,7 @@ image file will be filled with zero values.
          \bigspc\spc int zbegin, int zend, int chbegin, int chend,\\
          \bigspc\spc TypeDesc format, void *result, \\
          \bigspc\spc stride_t xstride, stride_t ystride, stride_t zstride)}
+\NEW
 Retrieve the rectangle of pixels and subset of channels
 of the designated {\cf subimage} and {\cf miplevel}, storing the pixel values
 beginning at the address specified by result and with the given strides.
@@ -623,37 +609,6 @@ pixels until they release the tiles they are holding.  If force is true,
 everything will be invalidated, no matter how wasteful it is, but if
 force is false, in actuality files will only be invalidated if their
 modification times have been changed since they were first opened.
-\apiend
-
-\subsection{Seeding the cache}
-\label{sec:imagecache:api:seeding}
-\apiitem{bool {\ce add_file} (ustring filename, ImageInput::Creator creator)}
-This creates a file entry in the cache that, instead of reading
-from disk, uses a custom \ImageInput to generate the image (note
-that it will have no effect if there's already an image by the
-same name in the cache).  The {\cf creator} is a factory that
-creates the custom \ImageInput and will be called like this:
-\begin{code}
-    ImageInput *in = creator();
-\end{code}
-
-Once created, the \ImageCache owns
-the \ImageInput and is responsible for destroying it when done.
-Custom \ImageInput's allow ``procedural'' images, among other
-things.  Also, this is the method you use to set up a
-``writeable'' \ImageCache images (perhaps with a type of \ImageInput
-that's just a stub that does as little as possible).
-\apiend
-
-\apiitem{bool {\ce add_tile} (ustring filename, int subimage, int miplevel,\\
-\bigspc        int x, int y, int z, TypeDesc format, const void *buffer,\\
-\bigspc        stride_t xstride=AutoStride, stride_t ystride=AutoStride, \\
-\bigspc        stride_t zstride=AutoStride}
-Preemptively add a tile corresponding to the named image, at the
-given subimage and MIP level.  The tile added is the one whose
-corner is (x,y,z), and buffer points to the pixels (in the given
-format, with supplied strides) which will be copied and inserted
-into the cache and made available for future lookups.
 \apiend
 
 \subsection{Errors and statistics}

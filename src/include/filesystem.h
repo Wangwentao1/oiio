@@ -52,7 +52,6 @@
 
 #include "export.h"
 #include "version.h"
-#include "string_ref.h"
 
 
 OIIO_NAMESPACE_ENTER
@@ -145,17 +144,20 @@ OIIO_API bool is_regular (const std::string &path);
 
 /// Version of fopen that can handle UTF-8 paths even on Windows
 ///
-OIIO_API FILE *fopen (string_ref path, string_ref mode);
+OIIO_API FILE *fopen (const std::string &path,
+                       const std::string &mode);
 
 /// Version of std::ifstream.open that can handle UTF-8 paths
 ///
-OIIO_API void open (std::ifstream &stream, string_ref path,
-                    std::ios_base::openmode mode = std::ios_base::in);
+OIIO_API void open (std::ifstream &stream,
+                     const std::string &path,
+                     std::ios_base::openmode mode = std::ios_base::in);
 
 /// Version of std::ofstream.open that can handle UTF-8 paths
 ///
-OIIO_API void open (std::ofstream &stream, string_ref path,
-                    std::ios_base::openmode mode = std::ios_base::out);
+OIIO_API void open (std::ofstream &stream,
+                     const std::string &path,
+                     std::ios_base::openmode mode = std::ios_base::out);
 
 /// Get last modified time of file
 ///
@@ -169,54 +171,15 @@ OIIO_API void last_write_time (const std::string& path, std::time_t time);
 ///
 OIIO_API void convert_native_arguments (int argc, const char *argv[]);
 
-/// Turn a sequence description string into a vector of integers.
-/// The sequence description can be any of the following
-///  * A value (e.g., "3")
-///  * A value range ("1-10", "10-1", "1-10x3", "1-10y3"):
-///     START-FINISH        A range, inclusive of start & finish
-///     START-FINISHxSTEP   A range with step size
-///     START-FINISHySTEP   The complement of a stepped range, that is,
-///                           all numbers within the range that would
-///                           NOT have been selected by 'x'.
-///     Note that START may be > FINISH, or STEP may be negative.
-///  * Multiple values or ranges, separated by a comma (e.g., "3,4,10-20x2")
-/// Retrn true upon success, false if the description was too malformed
-/// to generate a sequence.
-OIIO_API bool enumerate_sequence (string_ref desc,
-                                  std::vector<int> &numbers);
+#ifdef _WIN32
+// Conversion to windows native wide char file path
+//
+OIIO_API std::wstring path_to_windows_native (const std::string& path);
 
-/// Given a pattern (such as "foo.#.tif" or "bar.1-10#.exr"), return a
-/// normalized pattern in printf format (such as "foo.%04d.tif") and a
-/// framespec (such as "1-10").
-///
-/// If framepadding_override is > 0, it overrides any specific padding amount
-/// in the original pattern.
-///
-/// Return true upon success, false if the description was too malformed
-/// to generate a sequence.
-OIIO_API bool parse_pattern (const char *pattern,
-                             int framepadding_override,
-                             std::string &normalized_pattern,
-                             std::string &framespec);
-
-
-/// Given a normalized pattern (such as "foo.%04d.tif") and a list of frame
-/// numbers, generate a list of filenames.
-///
-/// Return true upon success, false if the description was too malformed
-/// to generate a sequence.
-OIIO_API bool enumerate_file_sequence (const std::string &pattern,
-                                       const std::vector<int> &numbers,
-                                       std::vector<std::string> &filenames);
-
-/// Given a normalized pattern (such as "/path/to/foo.%04d.tif") scan the
-/// containing directory (/path/to) for matching frame numbers and files.
-///
-/// Return true upon success, false if the directory doesn't exist or the
-/// pattern can't be parsed.
-OIIO_API bool scan_for_matching_filenames (const std::string &pattern,
-                                           std::vector<int> &numbers,
-                                           std::vector<std::string> &filenames);
+// Conversion from windows native wide char file path
+//
+OIIO_API std::string path_from_windows_native (const std::wstring& wpath);
+#endif
 
 };  // namespace Filesystem
 

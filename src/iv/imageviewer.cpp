@@ -79,17 +79,16 @@ namespace
 
 
 static const char *s_file_filters = ""
-    "Image Files (*.bmp *.cin *.dds *.dpx *.f3d *.fits *.gif *.hdr *.ico *.iff "
-    "*.jpg *.jpe *.jpeg *.jif *.jfif *.jfi *.jp2 *.j2k *.exr *.png *.pbm *.pgm "
-    "*.ppm *.ptex *.rla *.sgi *.rgb *.rgba *.bw *.int *.inta *.pic *.tga "
-    "*.tpic *.tif *.tiff *.tx *.env *.sm *.vsm *.zfile);;"
+    "Image Files (*.bmp *.cin *.dds *.dpx *.f3d *.fits *.hdr *.ico *.iff *.jpg "
+    "*.jpe *.jpeg *.jif *.jfif *.jfi *.jp2 *.j2k *.exr *.png *.pbm *.pgm *.ppm "
+    "*.ptex *.rla *.sgi *.rgb *.rgba *.bw *.int *.inta *.pic *.tga *.tpic "
+    "*.tif *.tiff *.tx *.env *.sm *.vsm *.zfile);;"
     "BMP (*.bmp);;"
     "Cineon (*.cin);;"
     "Direct Draw Surface (*.dds);;"
     "DPX (*.dpx);;"
     "Field3D (*.f3d);;"
     "FITS (*.fits);;"
-    "GIF (*.gif);;"
     "HDR/RGBE (*.hdr);;"
     "Icon (*.ico);;"
     "IFF (*.iff);;"
@@ -666,7 +665,7 @@ ImageViewer::open()
         add_image (filename);
 //        int n = m_images.size()-1;
 //        IvImage *newimage = m_images[n];
-//        newimage->read_iv (0, false, image_progress_callback, this);
+//        newimage->read (0, false, image_progress_callback, this);
     }
     if (old_lastimage >= 0) {
         // Otherwise, add_image already did this for us.
@@ -803,7 +802,7 @@ ImageViewer::saveAs()
                                          tr(s_file_filters));
     if (name.isEmpty())
         return;
-    bool ok = img->write (name.toStdString(), "", image_progress_callback, this);
+    bool ok = img->save (name.toStdString(), "", image_progress_callback, this);
     if (! ok) {
         std::cerr << "Save failed: " << img->geterror() << "\n";
     }
@@ -822,7 +821,7 @@ ImageViewer::saveWindowAs()
                                          QString(img->name().c_str()));
     if (name.isEmpty())
         return;
-    img->write (name.toStdString(), "", image_progress_callback, this);  // FIXME
+    img->save (name.toStdString(), "", image_progress_callback, this);  // FIXME
 }
 
 
@@ -838,7 +837,7 @@ ImageViewer::saveSelectionAs()
                                          QString(img->name().c_str()));
     if (name.isEmpty())
         return;
-    img->write (name.toStdString(), "", image_progress_callback, this);  // FIXME
+    img->save (name.toStdString(), "", image_progress_callback, this);  // FIXME
 }
 
 
@@ -979,7 +978,7 @@ ImageViewer::loadCurrentImage (int subimage, int miplevel)
         //}
 
         // Read the image from disk or from the ImageCache if available.
-        if (img->read_iv (subimage, miplevel, false, read_format, image_progress_callback, this, allow_transforms)) {
+        if (img->read (subimage, miplevel, false, read_format, image_progress_callback, this, allow_transforms)) {
             // The image was read succesfully.
             // Check if we've got to do sRGB to linear (ie, when not supported
             // by OpenGL).
@@ -1076,7 +1075,7 @@ ImageViewer::deleteCurrentImage()
 void
 ImageViewer::current_image (int newimage)
 {
-#ifndef NDEBUG
+#ifdef DEBUG
     Timer swap_image_time;
     swap_image_time.start();
 #endif
@@ -1089,7 +1088,7 @@ ImageViewer::current_image (int newimage)
     } else {
         displayCurrentImage (false);
     }
-#ifndef NDEBUG
+#ifdef DEBUG
     swap_image_time.stop();
     std::cerr << "Current Image change elapsed time: " << swap_image_time() << " seconds \n";
 #endif
@@ -1246,7 +1245,7 @@ ImageViewer::slide (long t, bool b)
 void
 ImageViewer::viewChannel (int c, COLOR_MODE colormode)
 {
-#ifndef NDEBUG
+#ifdef DEBUG
     Timer change_channel_time;
     change_channel_time.start();
 #endif
@@ -1286,7 +1285,7 @@ ImageViewer::viewChannel (int c, COLOR_MODE colormode)
         viewColor1ChAct->setChecked (m_color_mode == SINGLE_CHANNEL);
         viewColorHeatmapAct->setChecked (m_color_mode == HEATMAP);
     }
-#ifndef NDEBUG
+#ifdef DEBUG
     change_channel_time.stop();
     std::cerr << "Change channel elapsed time: " << change_channel_time() << " seconds \n";
 #endif

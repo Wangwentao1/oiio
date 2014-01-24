@@ -34,15 +34,12 @@
 
 #include "export.h"
 #include "filesystem.h"
-#include "fmath.h"
 #include "imageio.h"
 
 OIIO_PLUGIN_NAMESPACE_BEGIN
 
 class PNMInput : public ImageInput {
 public:
-    PNMInput() { }
-    virtual ~PNMInput() { close(); }
     virtual const char* format_name (void) const { return "pnm"; }
     virtual bool open (const std::string &name, ImageSpec &newspec);
     virtual bool close ();
@@ -50,16 +47,10 @@ public:
     virtual bool read_native_scanline (int y, int z, void *data);
 
 private:
-    enum PNMType {
-      P1, P2, P3, P4, P5, P6, Pf, PF
-    };
-
     std::ifstream m_file;
     std::string m_current_line; ///< Buffer the image pixels
     const char * m_pos;
-    PNMType m_pnm_type;
-    unsigned int m_max_val;
-    float m_scaling_factor;
+    unsigned int m_pnm_type, m_max_val;
 
     bool read_file_scanline (void * data);
     bool read_file_header ();
@@ -75,7 +66,7 @@ OIIO_PLUGIN_EXPORTS_BEGIN
     OIIO_EXPORT int pnm_imageio_version = OIIO_PLUGIN_VERSION;
 
     OIIO_EXPORT const char* pnm_input_extensions[] = {
-        "ppm","pgm","pbm","pnm", "pfm", NULL
+        "ppm","pgm","pbm","pnm", NULL
     };
 
 OIIO_PLUGIN_EXPORTS_END
@@ -199,21 +190,6 @@ unpack (const unsigned char * read, unsigned char * write, imagesize_t size)
     }
 }
 
-inline void
-unpack_floats(const unsigned char * read, float * write, imagesize_t numsamples, float scaling_factor)
-{
-    float *read_floats = (float *)read;
-
-    if((scaling_factor < 0 && bigendian()) || (scaling_factor > 0 && littleendian())) {
-        swap_endian(read_floats, numsamples);
-    }
-
-    float absfactor = fabs(scaling_factor);
-    for(imagesize_t i = 0; i < numsamples; i++) {
-        write[i] = absfactor * read_floats[i];
-    }
-}
-
 
 
 template <class T>
@@ -252,12 +228,10 @@ PNMInput::read_file_scanline (void * data)
         return false;
     int nsamples = m_spec.width * m_spec.nchannels;
 
-    if ((m_pnm_type >= P4 && m_pnm_type <= P6) || m_pnm_type == PF || m_pnm_type == Pf){
+    if (m_pnm_type >= 4 && m_pnm_type <= 6){
         int numbytes;
-        if (m_pnm_type == P4)
+        if (m_pnm_type == 4)
             numbytes = (m_spec.width + 7) / 8;
-        else if(m_pnm_type == PF || m_pnm_type == Pf)
-            numbytes = m_spec.nchannels * 4 * m_spec.width;
         else
             numbytes = m_spec.scanline_bytes();
         buf.resize (numbytes);
@@ -268,13 +242,13 @@ PNMInput::read_file_scanline (void * data)
 
     switch (m_pnm_type) {
         //Ascii 
-        case P1:
+        case 1:
             good &= ascii_to_raw (m_file, m_current_line, m_pos, (unsigned char *) data, 
                                   nsamples, (unsigned char)m_max_val);
             invert ((unsigned char *)data, (unsigned char *)data, nsamples); 
             break;
-        case P2:
-        case P3:
+        case 2:
+        case 3:
             if (m_max_val > std::numeric_limits<unsigned char>::max())
                 good &= ascii_to_raw (m_file, m_current_line, m_pos, (unsigned short *) data, 
                                       nsamples, (unsigned short)m_max_val);
@@ -283,22 +257,17 @@ PNMInput::read_file_scanline (void * data)
                                       nsamples, (unsigned char)m_max_val);
             break;
         //Raw
-        case P4:
+        case 4:
             unpack (&buf[0], (unsigned char *)data, nsamples);
             break;
-        case P5:
-        case P6:
+        case 5:
+        case 6:
             if (m_max_val > std::numeric_limits<unsigned char>::max())
                 raw_to_raw ((unsigned short *)&buf[0], (unsigned short *) data, 
                             nsamples, (unsigned short)m_max_val);
             else 
                 raw_to_raw ((unsigned char *)&buf[0], (unsigned char *) data, 
                             nsamples, (unsigned char)m_max_val);
-            break;
-        //Floating point
-        case Pf:
-        case PF:
-            unpack_floats(&buf[0], (float *)data, nsamples, m_scaling_factor);
             break;
         default:
             return false;
@@ -323,105 +292,51 @@ PNMInput::read_file_header ()
     char c;
     if (!m_file.is_open())
         return false;
-  
+
+    m_file >> c >> m_pnm_type;
+    
     //MagicNumber
-    m_file >> c;
     if (c != 'P')
         return false;
-    
-    m_file >> c;
-    switch(c) {
-      case '1':
-        m_pnm_type = P1;
-        break;
-      case '2':
-        m_pnm_type = P2;
-        break;
-      case '3':
-        m_pnm_type = P3;
-        break;
-      case '4':
-        m_pnm_type = P4;
-        break;
-      case '5':
-        m_pnm_type = P5;
-        break;
-      case '6':
-        m_pnm_type = P6;
-        break;
-      case 'f':
-        m_pnm_type = Pf;
-        break;
-      case 'F':
-        m_pnm_type = PF;
-        break;
-      default:
+    if (!(m_pnm_type >= 1 && m_pnm_type <= 6))
         return false;
-    }
-    
+
     //Size
     if (!read_int (m_file, width))
         return false; 
     if (!read_int (m_file, height))
         return false; 
-
-    if(m_pnm_type != PF && m_pnm_type != Pf) {
-        //Max Val
-        if (m_pnm_type != P1 && m_pnm_type != P4) {
-            if (!read_int (m_file, m_max_val))
-                return false;
-        } else
-            m_max_val = 1;
-        
-        //Space before content
-        if (!(isspace (m_file.get()) && m_file.good()))
+    
+    //Max Val
+    if (m_pnm_type != 1 && m_pnm_type != 4) {
+        if (!read_int (m_file, m_max_val))
             return false;
+    } else
+        m_max_val = 1;
+    
+    //Space before content
+    if (!(isspace (m_file.get()) && m_file.good()))
+        return false;
 
-        if (m_pnm_type == P3 || m_pnm_type == P6)
-            m_spec =  ImageSpec (width, height, 3, 
-                    (m_max_val > 255) ? TypeDesc::UINT16 : TypeDesc::UINT8);
-        else    
-            m_spec =  ImageSpec (width, height, 1, 
-                    (m_max_val > 255) ? TypeDesc::UINT16 : TypeDesc::UINT8);
+    if (m_pnm_type == 3 || m_pnm_type == 6)
+        m_spec =  ImageSpec (width, height, 3, 
+                (m_max_val > 255) ? TypeDesc::UINT16 : TypeDesc::UINT8);
+    else    
+        m_spec =  ImageSpec (width, height, 1, 
+                (m_max_val > 255) ? TypeDesc::UINT16 : TypeDesc::UINT8);
 
-        if (m_spec.nchannels == 1)
-            m_spec.channelnames[0] = "I";
-        else
-            m_spec.default_channel_names();
+    if (m_spec.nchannels == 1)
+        m_spec.channelnames[0] = "I";
+    else
+        m_spec.default_channel_names();
 
-        if (m_pnm_type >= P1 && m_pnm_type <= P3)
-            m_spec.attribute ("pnm:binary", 0);
-        else
-            m_spec.attribute ("pnm:binary", 1);
+    if (m_pnm_type >= 1 && m_pnm_type <= 3)
+        m_spec.attribute ("pnm:binary", 0);
+    else
+        m_spec.attribute ("pnm:binary", 1);
 
-        m_spec.attribute ("oiio:BitsPerSample", ceilf (logf (m_max_val + 1)/logf (2)));
-        return true;
-    } else {
-        //Read scaling factor
-        if(!read_int(m_file, m_scaling_factor)) {
-            return false;
-        }
-        
-        //Space before content
-        if (!(isspace (m_file.get()) && m_file.good()))
-            return false;
-
-        if(m_pnm_type == PF) {
-            m_spec = ImageSpec(width, height, 3, TypeDesc::FLOAT);
-            m_spec.default_channel_names();
-        } else {
-            m_spec = ImageSpec(width, height, 1, TypeDesc::FLOAT);
-            m_spec.channelnames[0] = "I";
-        }
-
-        if(m_scaling_factor < 0) {
-            m_spec.attribute("pnm:bigendian", 0);
-        } else {
-            m_spec.attribute("pnm:bigendian", 1);
-        }
-
-        return true;
-    }
+    m_spec.attribute ("oiio:BitsPerSample", ceilf (logf (m_max_val + 1)/logf (2)));
+    return true;
     }
     catch (const std::exception &e) {
         error ("PNM exception: %s", e.what());
@@ -434,7 +349,8 @@ PNMInput::read_file_header ()
 bool
 PNMInput::open (const std::string &name, ImageSpec &newspec)
 {
-    close(); //close previously opened file
+    if (m_file.is_open()) //close previously opened file
+        m_file.close();
 
     Filesystem::open (m_file, name, std::ios::in|std::ios::binary);
 
@@ -453,8 +369,7 @@ PNMInput::open (const std::string &name, ImageSpec &newspec)
 bool
 PNMInput::close ()
 {
-    if (m_file.is_open())
-        m_file.close();
+    m_file.close();
     return true;
 }
 

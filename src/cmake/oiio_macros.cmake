@@ -31,7 +31,7 @@ macro (add_oiio_plugin)
     get_filename_component (_target_name ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     add_library (${_target_name} SHARED ${_plugin_DEFAULT_ARGS})
     target_link_libraries (${_target_name} OpenImageIO ${_plugin_LINK_LIBRARIES})
-    set_target_properties (${_target_name} PROPERTIES PREFIX "" FOLDER "Plugins")
+    set_target_properties (${_target_name} PROPERTIES PREFIX "")
     oiio_install_targets (${_target_name})
 endmacro ()
 
@@ -43,23 +43,23 @@ endmacro ()
 # add_dll_fils ()
 #
 macro (add_dll_files)
-    install (FILES "${Boost_LIBRARY_DIRS}/boost_date_time-vc90-mt-1_38.dll"
-                   "${Boost_LIBRARY_DIRS}/boost_filesystem-vc90-mt-1_38.dll"
-                   "${Boost_LIBRARY_DIRS}/boost_regex-vc90-mt-1_38.dll"
-                   "${Boost_LIBRARY_DIRS}/boost_system-vc90-mt-1_38.dll"
-                   "${Boost_LIBRARY_DIRS}/boost_thread-vc90-mt-1_38.dll"
-                   "${QT_BINARY_DIR}/QtCore4.dll"
-                   "${QT_BINARY_DIR}/QtGui4.dll"
-                   "${QT_BINARY_DIR}/QtOpenGL4.dll"
-                   "${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Imath.dll"
-                   "${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Half.dll"
-                   "${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/IlmThread.dll"
-                   "${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Iex.dll"
-                   "${OPENEXR_HOME}/openexr-${OPENEXR_VERSION}/lib/IlmImf.dll"
-                   "${ZLIB_INCLUDE_DIR}/../lib/zlib1.dll"
-                   "${PNG_PNG_INCLUDE_DIR}/../lib/libpng13.dll"
-                   "${TIFF_INCLUDE_DIR}/../lib/libtiff.dll"
-                   "${GLEW_INCLUDES}/../lib/glew32.dll"
+    install (FILES ${Boost_LIBRARY_DIRS}/boost_date_time-vc90-mt-1_38.dll
+                   ${Boost_LIBRARY_DIRS}/boost_filesystem-vc90-mt-1_38.dll
+                   ${Boost_LIBRARY_DIRS}/boost_regex-vc90-mt-1_38.dll
+                   ${Boost_LIBRARY_DIRS}/boost_system-vc90-mt-1_38.dll
+                   ${Boost_LIBRARY_DIRS}/boost_thread-vc90-mt-1_38.dll
+                   ${QT_BINARY_DIR}/QtCore4.dll
+                   ${QT_BINARY_DIR}/QtGui4.dll
+                   ${QT_BINARY_DIR}/QtOpenGL4.dll
+                   ${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Imath.dll
+                   ${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Half.dll
+                   ${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/IlmThread.dll
+                   ${ILMBASE_HOME}/ilmbase-${ILMBASE_VERSION}/lib/Iex.dll
+                   ${OPENEXR_HOME}/openexr-${OPENEXR_VERSION}/lib/IlmImf.dll
+                   ${ZLIB_INCLUDE_DIR}/../lib/zlib1.dll
+                   ${PNG_PNG_INCLUDE_DIR}/../lib/libpng13.dll
+                   ${TIFF_INCLUDE_DIR}/../lib/libtiff.dll
+                   ${GLEW_INCLUDES}/../lib/glew32.dll
              DESTINATION bin COMPONENT user)
 endmacro ()
 
@@ -78,7 +78,7 @@ endmacro ()
 #
 macro (oiio_add_tests)
     parse_arguments (_ats "URL;IMAGEDIR;LABEL;FOUNDVAR" "" ${ARGN})
-    set (_ats_testdir "${PROJECT_SOURCE_DIR}/../${_ats_IMAGEDIR}")
+    set (_ats_testdir "${PROJECT_SOURCE_DIR}/../../${_ats_IMAGEDIR}")
     # If there was a FOUNDVAR param specified and that variable name is
     # not defined, mark the test as broken.
     if (_ats_FOUNDVAR AND NOT ${_ats_FOUNDVAR})
@@ -119,7 +119,7 @@ macro (oiio_add_tests)
                 message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
             endif ()
             add_test (${_add_test_args}
-                      "${CMAKE_BINARY_DIR}/testsuite/runtest.py"
+                      ${CMAKE_BINARY_DIR}/testsuite/runtest.py
                       ${_testdir}
                       ${_extra_test_args})
         endforeach ()

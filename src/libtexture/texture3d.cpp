@@ -33,6 +33,8 @@
 #include <string>
 #include <sstream>
 #include <list>
+#include <boost/tr1/memory.hpp>
+using namespace std::tr1;
 
 #include <OpenEXR/ImathMatrix.h>
 
@@ -51,20 +53,21 @@
 #include "imagecache.h"
 #include "imagecache_pvt.h"
 #include "texture_pvt.h"
-#include "../field3d.imageio/field3d_backdoor.h"
+#include "../field3d.imageio/field3d_pvt.h"
+#include "../openvdb.imageio/openvdb_pvt.h"
 
 OIIO_NAMESPACE_ENTER
 {
-using namespace pvt;
-using namespace f3dpvt;
+    using namespace pvt;
 
 namespace {  // anonymous
 
 static EightBitConverter<float> uchar2float;
 static ustring s_field3d ("field3d");
+static ustring s_openvdb ("vdb");
+static ustring u_density("density");
 
-
-}  // end anonymous namespace
+};  // end anonymous namespace
 
 namespace pvt {   // namespace pvt
 
@@ -111,6 +114,7 @@ TextureSystemImpl::texture3d (TextureHandle *texture_handle_,
     texture3d_lookup_prototype lookup = lookup_functions[(int)options.mipmode];
 #else
     texture3d_lookup_prototype lookup = &TextureSystemImpl::texture3d_lookup_nomip;
+	texture3d_lookup_prototype lookupvdb = &TextureSystemImpl::texture3d_lookup_openvdb;
 #endif
 
     PerThreadInfo *thread_info = (PerThreadInfo *)thread_info_;
@@ -121,43 +125,50 @@ TextureSystemImpl::texture3d (TextureHandle *texture_handle_,
 
     if (! texturefile  ||  texturefile->broken())
         return missing_texture (options, result);
-
+	const bool isVDB = (texturefile->fileformat() == s_openvdb);
     if (options.subimagename) {
+		// if the format is openvdb,we just jump over this part for openvdb format is different;
+		if(isVDB){
+			int s = 0;
+			options.subimage = s;
+		}
         // If subimage was specified by name, figure out its index.
-        int s = m_imagecache->subimage_from_name (texturefile, options.subimagename);
-        if (s < 0) {
-            error ("Unknown subimage \"%s\" in texture \"%s\"",
-                   options.subimagename.c_str(), texturefile->filename().c_str());
-            return false;
-        }
-        options.subimage = s;
-        options.subimagename.clear();
+		else{
+			int s = m_imagecache->subimage_from_name (texturefile, options.subimagename);
+			if (s < 0) {
+				error ("Unknown subimage \"%s\" in texture \"%s\"",
+					  options.subimagename.c_str(), texturefile->filename().c_str());
+				return false;
+			}
+			options.subimage = s;
+			options.subimagename.clear();
+		}
     }
 
-    const ImageSpec &spec (texturefile->spec(options.subimage, 0));
-
+	const ImageSpec &spec (texturefile->spec(options.subimage, 0));
     // Figure out the wrap functions
     if (options.swrap == TextureOpt::WrapDefault)
         options.swrap = texturefile->swrap();
     if (options.swrap == TextureOpt::WrapPeriodic && ispow2(spec.full_width))
-        options.swrap_func = wrap_periodic_pow2;
+        options.swrap_func = wrap_periodic2;
     else
         options.swrap_func = wrap_functions[(int)options.swrap];
     if (options.twrap == TextureOpt::WrapDefault)
         options.twrap = texturefile->twrap();
     if (options.twrap == TextureOpt::WrapPeriodic && ispow2(spec.full_height))
-        options.twrap_func = wrap_periodic_pow2;
+        options.twrap_func = wrap_periodic2;
     else
         options.twrap_func = wrap_functions[(int)options.twrap];
     if (options.rwrap == TextureOpt::WrapDefault)
         options.rwrap = texturefile->rwrap();
     if (options.rwrap == TextureOpt::WrapPeriodic && ispow2(spec.full_depth))
-        options.rwrap_func = wrap_periodic_pow2;
+        options.rwrap_func = wrap_periodic2;
     else
         options.rwrap_func = wrap_functions[(int)options.rwrap];
-
-    int actualchannels = Imath::clamp (spec.nchannels - options.firstchannel,
-                                       0, options.nchannels);
+	
+	int actualchannels;
+	actualchannels = isVDB ? options.nchannels : (Imath::clamp (spec.nchannels - options.firstchannel,
+		0, options.nchannels));
     options.actualchannels = actualchannels;
 
     // Do the volume lookup in local space.  There's not actually a way
@@ -176,17 +187,26 @@ TextureSystemImpl::texture3d (TextureHandle *texture_handle_,
     } else {
         Plocal = P;
     }
+	
 
     // FIXME: we don't bother with this for dPdx, dPdy, and dPdz only
     // because we know that we don't currently filter volume lookups and
     // therefore don't actually use the derivs.  If/when we do, we'll
     // need to transform them into local space as well.
 
-    bool ok = (this->*lookup) (*texturefile, thread_info, options,
-                               Plocal, dPdx, dPdy, dPdz, result);
-    if (actualchannels < options.nchannels)
-        fill_gray_channels (spec, options, result);
-    return ok;
+	// we branch here for OpenVDB and field3d
+	// we do the lookup here to find out the float value, here the texturefile is 
+	// already cached, while we used the interface directly to read the voxel;
+	if (isVDB){
+		bool ok = (this->*lookupvdb) (*texturefile, thread_info, options,
+			Plocal, dPdx, dPdy, dPdz, result);
+		return ok;
+	}
+	bool ok = (this->*lookup) (*texturefile, thread_info, options,
+		Plocal, dPdx, dPdy, dPdz, result);
+	if (actualchannels < options.nchannels)
+		fill_channels(spec, options, result);
+	return ok;
 }
 
 
@@ -222,19 +242,14 @@ TextureSystemImpl::texture3d_lookup_nomip (TextureFile &texturefile,
                             float *result)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
     float* dresultds = options.dresultds;
     float* dresultdt = options.dresultdt;
     float* dresultdr = options.dresultdr;
-    if (dresultds) {
-        DASSERT (dresultdt && dresultdr);
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdr[c] = 0;
+    for (int c = 0;  c < options.actualchannels;  ++c) {
+        result[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+        if (dresultdr) dresultdr[c] = 0;
     }
     // If the user only provided us with one pointer, clear all to simplify
     // the rest of the code, but only after we zero out the data for them so
@@ -266,7 +281,39 @@ TextureSystemImpl::texture3d_lookup_nomip (TextureFile &texturefile,
     return ok;
 }
 
+bool
+TextureSystemImpl::texture3d_lookup_openvdb(TextureFile &texturefile,
+								PerThreadInfo *thread_info,
+								TextureOpt &options,
+								const Imath::V3f &_P, const Imath::V3f &_dPdx,
+								const Imath::V3f &_dPdy, const Imath::V3f &_dPdz,
+								float *result)
+{
+	// we got the interface of OpenVDB first
+	OpenVDBInput_Interface *ovdi = (OpenVDBInput_Interface *)texturefile.imageinput();
+	// Initialize results to 0.  We'll add from here on as we sample.
+	float* dresultds = options.dresultds;
+	float* dresultdt = options.dresultdt;
+	float* dresultdr = options.dresultdr;
+	for (int c = 0; c < options.actualchannels; ++c) {
+		result[c] = 0;
+		if (dresultds) dresultds[c] = 0;
+		if (dresultdt) dresultdt[c] = 0;
+		if (dresultdr) dresultdr[c] = 0;
+	}
+	// If the user only provided us with one pointer, clear all to simplify
+	// the rest of the code, but only after we zero out the data for them so
+	// they know something went wrong.
+	if (!(dresultds && dresultdt && dresultdr))
+		dresultds = dresultdt = dresultdr = NULL;
 
+	// Now we start reading the voxel, we are going to read the first one
+	ustring gridname = options.subimagename; // the grid to look up; like "density" or "v"
+	if(!gridname) gridname = u_density; //if not selected, it must at least have a density in a vdb file.
+	int index = options.thread_index;
+	bool res = ovdi->lookup_data(_P, gridname ,result, options.actualchannels, index);
+	return res;
+}
 
 bool
 TextureSystemImpl::accum3d_sample_closest (const Imath::V3f &P, int miplevel,
@@ -315,7 +362,7 @@ TextureSystemImpl::accum3d_sample_closest (const Imath::V3f &P, int miplevel,
     TileRef &tile (thread_info->tile);
     if (! tile  ||  ! ok)
         return false;
-    size_t channelsize = texturefile.channelsize(options.subimage);
+    size_t channelsize = texturefile.channelsize();
     int tilepel = (tile_r * spec.tile_height + tile_t) * spec.tile_width + tile_s;
     int offset = spec.nchannels * tilepel + options.firstchannel;
     DASSERT ((size_t)offset < spec.nchannels*spec.tile_pixels());
@@ -329,14 +376,6 @@ TextureSystemImpl::accum3d_sample_closest (const Imath::V3f &P, int miplevel,
         const float *texel = tile->data() + offset;
         for (int c = 0;  c < options.actualchannels;  ++c)
             accum[c] += weight * texel[c];
-    }
-
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
     }
     return true;
 }
@@ -378,9 +417,10 @@ TextureSystemImpl::accum3d_sample_bilinear (const Imath::V3f &P, int miplevel,
 //    bool svalid[2], tvalid[2], rvalid[2];  // Valid texels?  false means black border
     union { bool bvalid[6]; unsigned long long ivalid; } valid_storage;
     valid_storage.ivalid = 0;
-    DASSERT (sizeof(valid_storage) == 8);
+    DASSERT (sizeof(valid_storage) >= 6*sizeof(bool));
     const unsigned long long none_valid = 0;
-    const unsigned long long all_valid = littleendian() ? 0x010101010101LL : 0x01010101010100LL;
+    const unsigned long long all_valid = 0x010101010101LL;
+    DASSERT (__LITTLE_ENDIAN__ && "this trick won't work with big endian");
     bool *svalid = valid_storage.bvalid;
     bool *tvalid = valid_storage.bvalid + 2;
     bool *rvalid = valid_storage.bvalid + 4;
@@ -417,8 +457,8 @@ TextureSystemImpl::accum3d_sample_bilinear (const Imath::V3f &P, int miplevel,
     bool t_onetile = (tile_t != tileheightmask) & (ttex[0]+1 == ttex[1]);
     bool r_onetile = (tile_r != tiledepthmask) & (rtex[0]+1 == rtex[1]);
     bool onetile = (s_onetile & t_onetile & r_onetile);
-    size_t channelsize = texturefile.channelsize(options.subimage);
-    size_t pixelsize = texturefile.pixelsize(options.subimage);
+    size_t channelsize = texturefile.channelsize();
+    size_t pixelsize = texturefile.pixelsize();
     if (onetile &&
         valid_storage.ivalid == all_valid) {
         // Shortcut if all the texels we need are on the same tile
@@ -467,7 +507,7 @@ TextureSystemImpl::accum3d_sample_bilinear (const Imath::V3f &P, int miplevel,
                     savetile[k][j][i] = tile;
                     size_t tilepel = (tile_r * spec.tile_height + tile_t) * spec.tile_width + tile_s;
                     size_t offset = (spec.nchannels * tilepel + options.firstchannel) * channelsize;
-#ifndef NDEBUG
+#if DEBUG
                     if ((size_t)offset >= spec.tile_width*spec.tile_height*spec.tile_depth*pixelsize)
                         std::cerr << "offset=" << offset << ", whd " << spec.tile_width << ' ' << spec.tile_height << ' ' << spec.tile_depth << " pixsize " << pixelsize << "\n";
 #endif
@@ -555,24 +595,12 @@ TextureSystemImpl::accum3d_sample_bilinear (const Imath::V3f &P, int miplevel,
         }
     }
 
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = trilerp (1.0f*(rvalid[0]*tvalid[0]*svalid[0]), 1.0f*(rvalid[0]*tvalid[0]*svalid[1]),
-                           1.0f*(rvalid[0]*tvalid[1]*svalid[0]), 1.0f*(rvalid[0]*tvalid[1]*svalid[1]),
-                           1.0f*(rvalid[1]*tvalid[0]*svalid[0]), 1.0f*(rvalid[1]*tvalid[0]*svalid[1]),
-                           1.0f*(rvalid[1]*tvalid[1]*svalid[0]), 1.0f*(rvalid[1]*tvalid[1]*svalid[1]),
-                           sfrac, tfrac, rfrac);
-        f *= weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
-    }
     return true;
 }
 
 
 
-}  // end namespace pvt
+};  // end namespace pvt
 
 }
 OIIO_NAMESPACE_EXIT

@@ -46,6 +46,11 @@ OIIO_NAMESPACE_ENTER
 {
 
 #if 0
+// Use reader/writer locks
+typedef shared_mutex ustring_mutex_t;
+typedef shared_lock ustring_read_lock_t;
+typedef unique_lock ustring_write_lock_t;
+#elif 0
 // Use regular mutex
 typedef mutex ustring_mutex_t;
 typedef lock_guard ustring_read_lock_t;
@@ -68,7 +73,7 @@ typedef null_lock<null_mutex> ustring_write_lock_t;
 #endif
 
 
-typedef boost::unordered_map <string_ref, ustring::TableRep *, Strutil::StringHash, Strutil::StringEqual> UstringTable;
+typedef boost::unordered_map <const char *, ustring::TableRep *, Strutil::StringHash, Strutil::StringEqual> UstringTable;
 
 std::string ustring::empty_std_string ("");
 
@@ -106,123 +111,66 @@ static ustring ustring_force_make_unique_call("");
 
 
 
-namespace {
-// Definitions to let us access libc++ string internals.
-// See libc++ <string> file for details.
-
-#ifdef _LIBCPP_ALTERNATE_STRING_LAYOUT
-struct libcpp_string__long {
-    std::string::pointer   __data_;
-    std::string::size_type __size_;
-    std::string::size_type __cap_;
-};
-#if _LIBCPP_BIG_ENDIAN
-    enum {libcpp_string__long_mask  = 0x1ul};
-#else  // _LIBCPP_BIG_ENDIAN
-    enum {libcpp_string__long_mask  = ~(std::string::size_type(~0) >> 1)};
-#endif  // _LIBCPP_BIG_ENDIAN
-#else
-struct libcpp_string__long {
-    std::string::size_type __cap_;
-    std::string::size_type __size_;
-    std::string::pointer   __data_;
-};
-#if _LIBCPP_BIG_ENDIAN
-    enum {libcpp_string__long_mask  = ~(std::string::size_type(~0) >> 1)};
-#else  // _LIBCPP_BIG_ENDIAN
-    enum {libcpp_string__long_mask  = 0x1ul};
-#endif  // _LIBCPP_BIG_ENDIAN
-#endif
-
-enum {libcpp_string__min_cap = (sizeof(libcpp_string__long) - 1)/sizeof(std::string::value_type) > 2 ?
-                               (sizeof(libcpp_string__long) - 1)/sizeof(std::string::value_type) : 2};
-
-};
-
-
-
-ustring::TableRep::TableRep (string_ref strref)
-    : hashed(Strutil::strhash(strref))
+ustring::TableRep::TableRep (const char *s, size_t len)
+    : hashed(Strutil::strhash(s))
 {
-    length = strref.length();
-    memcpy ((char *)c_str(), strref.data(), length);
-    ((char *)c_str())[length] = 0;
-
-    // We don't want the internal 'std::string str' to redundantly store the
-    // chars, along with our own allocation.  So we use our knowledge of the
-    // internal structure of std::string (for certain compilers) to force
-    // the std::string to make it point to our chars!  In such a case, the
-    // destructor will be careful not to allow a deallocation.
-
-#if defined(__GNUC__) && !defined(_LIBCPP_VERSION)
-    // It turns out that the first field of a gcc std::string is a pointer
-    // to the characters within the basic_string::_Rep.  We merely redirect
-    // that pointer, though for std::string to function properly, the chars
-    // must be preceeded immediately in memory by the rest of
-    // basic_string::_Rep, consisting of length, capacity and refcount
-    // fields.  And we have designed our TableRep to do just that!  So now
-    // we redirect the std::string's pointer to our own characters and its
-    // mocked-up _Rep.
-    //
-    // See /usr/include/c++/VERSION/bits/basic_string.h for the details of
-    // gcc's std::string implementation.
-    dummy_capacity = length;
+    strcpy ((char *)c_str(), s);
+    length = len;
+    dummy_capacity = len;
     dummy_refcount = 1;   // so it never frees
+
+#if defined(__GNUC__)
+    // We don't want the internal 'string str' to redundantly store the
+    // chars, along with our own allocation.  So we use our knowledge of
+    // the internal structure of gcc strings to make it point to our chars!
+    // Note that we've carefully structured the TableRep fields so they
+    // mimic a GCC basic_string::_Rep.
+    //
+    // It turns out that the first field of a gcc std::string is a
+    // pointer to the characters within the basic_string::_Rep.  We
+    // merely redirect that pointer, though for std::string to function
+    // properly, the chars must be preceeded immediately in memory by
+    // the rest of basic_string::_Rep, consisting of length, capacity
+    // and refcount fields.  And we have designed our TableRep to do
+    // just that!  So now we redirect the std::string's pointer to our
+    // own characters and its mocked-up _Rep.  
+    //
+    // See /usr/include/c++/VERSION/bits/basic_string.h for the details
+    // of gcc's std::string implementation.
+
     *(const char **)&str = c_str();
-    DASSERT (str.c_str() == c_str() && str.size() == length);
-    return;
-
-#elif defined(_LIBCPP_VERSION)
-    // libc++ uses a different std::string representation than gcc.  For
-    // long char sequences, it's two size_t's (capacity & length) followed
-    // by the pointer to allocated characters. (Gory detail: see the
-    // definitions above for how it varies slightly with endianness and
-    // _LIBCPP_ALTERNATE_STRING_LAYOUT.)  For short enough sequences, it's a
-    // single byte length followed immediately by the chars (the total being
-    // the same size as the long string).  There's no savings of space or
-    // allocations to be had for short strings, so we just let those behave
-    // as normal.  But if it's going to make a long string (we can tell from
-    // the length), we construct it ourselves, forcing the pointer to point
-    // to the charcters in the TableRep we allocated.
-    if (length >= libcpp_string__min_cap /* it'll be a "long string" */) {
-        ((libcpp_string__long *)&str)->__cap_ = libcpp_string__long_mask | (length+1);
-        ((libcpp_string__long *)&str)->__size_ = length;
-        ((libcpp_string__long *)&str)->__data_ = (char *)c_str();
-        DASSERT (str.c_str() == c_str() && str.size() == length);
-        return;
-    }
+    DASSERT (str.c_str() == c_str());
+#else
+    // Not gcc -- just assign the internal string.  This will result in
+    // double allocation for the chars.  If you care about that, do
+    // something special for your platform, much like we did for gcc
+    // above.  (Windows users, I'm talking to you.)
+    str = s;
 #endif
-
-    // Remaining cases - just assign the internal string.  This may result
-    // in double allocation for the chars.  If you care about that, do
-    // something special for your platform, much like we did for gcc and
-    // libc++ above. (Windows users, I'm talking to you.)
-    str = strref;
 }
 
 
 
 ustring::TableRep::~TableRep ()
 {
-    if (str.c_str() == c_str()) {
-        // This is one of those cases where we've carefully doctored the
-        // string to point to our allocated characters.  To make a safe
-        // string destroy, now force it to look like an empty string.
-        std::string empty;
-        memcpy (&str, &empty, sizeof(std::string));
-    }
+#if defined(__GNUC__)
+    // Doctor the string to be empty again before destroying.
+    ASSERT (str.c_str() == c_str());
+    std::string empty;
+    memcpy (&str, &empty, sizeof(std::string));
+#endif
 }
 
 
 
 const char *
-ustring::make_unique (string_ref strref)
+ustring::make_unique (const char *str)
 {
     UstringTable &table (ustring_table());
 
     // Eliminate NULLs
-    if (! strref.data())
-        strref = string_ref("", 0);
+    if (! str)
+        str = "";
 
     // Check the ustring table to see if this string already exists.  If so,
     // construct from its canonical representation.
@@ -234,7 +182,7 @@ ustring::make_unique (string_ref strref)
         const char *result = NULL;  // only non-NULL if it was found
         {
             ustring_read_lock_t read_lock (ustring_mutex());
-            UstringTable::const_iterator found = table.find (strref);
+            UstringTable::const_iterator found = table.find (str);
             if (found != table.end())
                 result = found->second->c_str();
         }
@@ -247,10 +195,10 @@ ustring::make_unique (string_ref strref)
     // This string is not yet in the ustring table.  Create a new entry.
     // Note that we are speculatively releasing the lock and building the
     // string locally.  Then we'll lock again to put it in the table.
-    size_t len = strref.length();
+    size_t len = strlen(str);
     size_t size = sizeof(ustring::TableRep) + len + 1;
     ustring::TableRep *rep = (ustring::TableRep *) malloc (size);
-    new (rep) ustring::TableRep (strref);
+    new (rep) ustring::TableRep (str, len);
 
     const char *result = rep->c_str(); // start assuming new one
     {
@@ -260,14 +208,15 @@ ustring::make_unique (string_ref strref)
         // constructing its rep, check the table one more time.  If it's
         // still empty, add it.
         ustring_write_lock_t write_lock (ustring_mutex());
-        UstringTable::const_iterator found = table.find (strref);
+        UstringTable::const_iterator found = table.find (str);
         if (found == table.end()) {
             // add the one we just created to the table
-            table[string_ref(result,len)] = rep;
+            table[result] = rep;
             ++ustring_stats_unique;
             ustring_stats_memory += size;
-            if (rep->c_str() != rep->str.c_str())
-                ustring_stats_memory += len+1;  // chars are replicated
+#ifndef __GNUC__
+            ustring_stats_memory += len+1;  // non-GNU replicates the chars
+#endif
             return result;
         } else {
             // use the one in the table, and we'll delete the new one we
@@ -303,7 +252,7 @@ ustring::getstats (bool verbose)
             << ", unique " << ustring_stats_unique
             << ", " << Strutil::memformat(ustring_stats_memory);
     }
-#ifndef NDEBUG
+#ifdef DEBUG
     // See if our hashing is pathological by checking if there are multiple
     // strings that ended up with the same hash.
     UstringTable &table (ustring_table());

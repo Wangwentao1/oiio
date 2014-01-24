@@ -33,6 +33,8 @@
 #include <string>
 #include <sstream>
 #include <list>
+#include <boost/tr1/memory.hpp>
+using namespace std::tr1;
 
 #include <OpenEXR/ImathMatrix.h>
 
@@ -235,7 +237,7 @@ namespace {  // anonymous
 
 static EightBitConverter<float> uchar2float;
 
-}  // end anonymous namespace
+};  // end anonymous namespace
 
 namespace pvt {   // namespace pvt
 
@@ -250,17 +252,11 @@ TextureSystemImpl::environment (ustring filename, TextureOptions &options,
                                 VaryingRef<Imath::V3f> dRdy,
                                 float *result)
 {
-    Perthread *thread_info = get_perthread_info();
-    TextureHandle *texture_handle = get_texture_handle (filename, thread_info);
-    if (! texture_handle)
-        return false;
     bool ok = true;
     for (int i = beginactive;  i < endactive;  ++i) {
         if (runflags[i]) {
             TextureOpt opt (options, i);
-            ok &= environment (texture_handle, thread_info,
-                               opt, R[i], dRdx[i], dRdy[i],
-                               result+i*options.nchannels);
+            ok &= environment (filename, opt, R[i], dRdx[i], dRdy[i], result);
         }
     }
     return ok;
@@ -330,16 +326,13 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
     options.actualchannels = actualchannels;
 
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
     float* dresultds = options.dresultds;
     float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
+    for (int c = 0;  c < options.actualchannels;  ++c) {
+        result[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+    }
     // If the user only provided us with one pointer, clear both to simplify
     // the rest of the code, but only after we zero out the data for them so
     // they know something went wrong.
@@ -506,14 +499,14 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
     ++stats.aniso_queries;
 
     if (actualchannels < options.nchannels)
-        fill_gray_channels (spec, options, result);
+        fill_channels (spec, options, result);
 
     return ok;
 }
 
 
 
-}  // end namespace pvt
+};  // end namespace pvt
 
 }
 OIIO_NAMESPACE_EXIT

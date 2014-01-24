@@ -46,10 +46,14 @@ OIIO_NAMESPACE_ENTER
 
 namespace pvt {
 
+/// Prototype for imageio factory prototype
+///
+typedef void* (*create_prototype)();
+
 /// Mutex allowing thread safety of ImageOutput internals
 ///
 extern recursive_mutex imageio_mutex;
-extern atomic_int oiio_threads;
+extern int oiio_threads;
 extern ustring plugin_searchpath;
 extern std::string format_list;
 extern std::string extension_list;
@@ -92,15 +96,8 @@ const void *convert_from_float (const float *src, void *dst, size_t nvals,
                                 int quant_black, int quant_white,
                                 int quant_min, int quant_max,
                                 TypeDesc format);
-/// A version of convert_from_float that will break up big jobs with
-/// multiple threads.
-const void *parallel_convert_from_float (const float *src, void *dst,
-                                         size_t nvals,
-                                         int quant_black, int quant_white,
-                                         int quant_min, int quant_max,
-                                         TypeDesc format, int nthreads=0);
 
-}  // namespace pvt
+};  // namespace pvt
 
 }
 OIIO_NAMESPACE_EXIT

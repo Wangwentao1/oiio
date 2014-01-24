@@ -201,8 +201,7 @@ TIFFOutput::open (const std::string &name, const ImageSpec &userspec,
         TIFFSetField (m_tif, TIFFTAG_ROWSPERSTRIP, 32);
     }
     TIFFSetField (m_tif, TIFFTAG_SAMPLESPERPIXEL, m_spec.nchannels);
-    int orientation = m_spec.get_int_attribute("Orientation", 1);
-    TIFFSetField (m_tif, TIFFTAG_ORIENTATION, orientation);
+    TIFFSetField (m_tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT); // always
     
     int bps, sampformat;
     switch (m_spec.format.basetype) {
@@ -234,11 +233,10 @@ TIFFOutput::open (const std::string &name, const ImageSpec &userspec,
         sampformat = SAMPLEFORMAT_IEEEFP;
         break;
     default:
-        // Everything else, including UNKNOWN -- default to 8 bit
-        bps = 8;
-        sampformat = SAMPLEFORMAT_UINT;
-        m_spec.set_format (TypeDesc::UINT8);
-        break;
+        error ("TIFF doesn't support %s images (\"%s\")",
+               m_spec.format.c_str(), name.c_str());
+        close();
+        return false;
     }
     TIFFSetField (m_tif, TIFFTAG_BITSPERSAMPLE, bps);
     TIFFSetField (m_tif, TIFFTAG_SAMPLEFORMAT, sampformat);

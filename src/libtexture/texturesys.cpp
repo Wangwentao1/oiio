@@ -32,8 +32,9 @@
 #include <math.h>
 #include <string>
 #include <sstream>
-#include <cstring>
 #include <list>
+#include <boost/tr1/memory.hpp>
+using namespace std::tr1;
 
 #include <OpenEXR/ImathMatrix.h>
 
@@ -66,31 +67,32 @@ OIIO_NAMESPACE_ENTER
 
 namespace {  // anonymous
 
+static shared_ptr<TextureSystemImpl> shared_texsys;
+static mutex shared_texsys_mutex;
 static EightBitConverter<float> uchar2float;
 
-}  // end anonymous namespace
+};  // end anonymous namespace
 
 
 TextureSystem *
 TextureSystem::create (bool shared)
 {
     ImageCache *ic = ImageCache::create (shared);
-    return new TextureSystemImpl (ic);
-}
-
-
-
-void
-TextureSystem::destroy (TextureSystem *x, bool teardown_imagecache)
-{
-    if (! x)
-        return;
-    TextureSystemImpl *impl = (TextureSystemImpl *) x;
-    if (teardown_imagecache) {
-        ImageCache::destroy (impl->m_imagecache, true);
-        impl->m_imagecache = NULL;
+#if 0
+    if (shared) {
+        // They requested a shared texsys.  If a shared texsys already
+        // exists, just return it, otherwise record the new cache.
+        lock_guard guard (shared_texsys_mutex);
+        if (! shared_texsys.get())
+            shared_texsys.reset (new TextureSystemImpl (ic));
+#ifdef DEBUG
+        std::cerr << " shared TextureSystem is "
+                  << (void *)shared_texsys.get() << "\n";
+#endif
+        return shared_texsys.get ();
     }
-    delete (TextureSystemImpl *) impl;
+#endif
+    return new TextureSystemImpl (ic);
 }
 
 
@@ -98,7 +100,10 @@ TextureSystem::destroy (TextureSystem *x, bool teardown_imagecache)
 void
 TextureSystem::destroy (TextureSystem *x)
 {
-    destroy (x, false);
+    // Delete only if it's a private one
+//    lock_guard guard (shared_texsys_mutex);
+//    if (x != shared_texsys.get())
+        delete (TextureSystemImpl *) x;
 }
 
 
@@ -110,6 +115,46 @@ namespace pvt {   // namespace pvt
 // Wrap functions wrap 'coord' around 'width', and return true if the
 // result is a valid pixel coordinate, false if black should be used
 // instead.
+
+
+bool
+TextureSystemImpl::wrap_black (int &coord, int origin, int width)
+{
+    return (coord >= origin && coord < (width+origin));
+}
+
+
+bool
+TextureSystemImpl::wrap_clamp (int &coord, int origin, int width)
+{
+    if (coord < origin)
+        coord = origin;
+    else if (coord >= origin+width)
+        coord = origin+width-1;
+    return true;
+}
+
+
+bool
+TextureSystemImpl::wrap_periodic (int &coord, int origin, int width)
+{
+    coord -= origin;
+    coord %= width;
+    if (coord < 0)       // Fix negative values
+        coord += width;
+    coord += origin;
+    return true;
+}
+
+
+bool
+TextureSystemImpl::wrap_periodic2 (int &coord, int origin, int width)
+{
+    coord -= origin;
+    coord &= (width - 1); // Shortcut periodic if we're sure it's a pow of 2
+    coord += origin;
+    return true;
+}
 
 
 bool
@@ -131,7 +176,28 @@ TextureSystemImpl::wrap_periodic_sharedborder (int &coord, int origin, int width
 }
 
 
-const wrap_impl TextureSystemImpl::wrap_functions[] = {
+bool
+TextureSystemImpl::wrap_mirror (int &coord, int origin, int width)
+{
+    coord -= origin;
+    bool negative = (coord < 0);
+    int iter = coord / width;    // Which iteration of the pattern?
+    coord -= iter * width;
+    bool flip = (iter & 1);
+    if (negative) {
+        coord += width - 1;
+        flip = !flip;
+    }
+    if (flip)
+        coord = width - 1 - coord;
+    DASSERT (coord >= 0 && coord < width);
+    coord += origin;
+    return true;
+}
+
+
+
+const TextureSystemImpl::wrap_impl TextureSystemImpl::wrap_functions[] = {
     // Must be in same order as Wrap enum
     wrap_black, wrap_black, wrap_clamp, wrap_periodic, wrap_mirror
 };
@@ -220,7 +286,8 @@ TextureSystemImpl::getstats (int level, bool icstats) const
     bool anytexture = (stats.texture_queries + stats.texture3d_queries +
                        stats.shadow_queries + stats.environment_queries);
     if (level > 0 && anytexture) {
-        out << "OpenImageIO Texture statistics\n";
+        out << "OpenImageIO Texture statistics (" << (void*)this
+            << ", cache = " << (void *)m_imagecache << ")\n";
         out << "  Queries/batches : \n";
         out << "    texture     :  " << stats.texture_queries
             << " queries in " << stats.texture_batches << " batches\n";
@@ -446,8 +513,8 @@ TextureSystemImpl::get_texels (ustring filename, TextureOpt &options,
                 TileRef &tile (thread_info->tile);
                 const char *data;
                 if (tile && (data = (const char *)tile->data (x, y, z))) {
-                    data += options.firstchannel * texfile->datatype(subimage).size();
-                    convert_types (texfile->datatype(subimage), data,
+                    data += options.firstchannel * texfile->datatype().size();
+                    convert_types (texfile->datatype(), data,
                                    format, result, actualchannels);
                     for (int c = actualchannels;  c < options.nchannels;  ++c)
                         convert_types (TypeDesc::FLOAT, &options.fill,
@@ -540,20 +607,27 @@ TextureSystemImpl::missing_texture (TextureOpt &options, float *result)
 
 
 void
-TextureSystemImpl::fill_gray_channels (const ImageSpec &spec,
-                                       TextureOpt &options, float *result)
+TextureSystemImpl::fill_channels (const ImageSpec &spec, TextureOpt &options,
+                                  float *result)
 {
-    if (! m_gray_to_rgb || options.firstchannel != 0)
-        return;   // never mind
+    // Starting channel to deal with is the first beyond what we actually
+    // got from the texture lookup.
+    int c = options.actualchannels;
+
+    bool save_alpha = false;
 
     // Multi-channel texture reads from single channel files will
     // propagate their grayscale value to G and B (no alpha)
-    bool propagate = (spec.nchannels == 1 && options.nchannels >= 3);
+    bool propagate = (spec.nchannels == 1 &&
+                      m_gray_to_rgb &&
+                      options.firstchannel == 0 && options.nchannels >= 3);
 
     // When reading monochrome images with alpha into a 4
     // channel result, move the alpha to the last position (CCCA)
     if (spec.nchannels == 2 && spec.alpha_channel == 1 &&
-        options.nchannels == 4) {
+        m_gray_to_rgb &&
+        options.firstchannel == 0 && options.nchannels == 4) {
+        // Save alpha
         result[3] = result[1];
         if (options.dresultds)
             options.dresultds[3] = options.dresultds[1];
@@ -563,6 +637,8 @@ TextureSystemImpl::fill_gray_channels (const ImageSpec &spec,
             options.dresultdr[3] = options.dresultdr[1];
         // And we will propagate monochrome to G and B
         propagate = true;
+        // And save the alpha
+        save_alpha = true;
     }
 
     // Propagate to G and B if needed
@@ -581,6 +657,15 @@ TextureSystemImpl::fill_gray_channels (const ImageSpec &spec,
             options.dresultdr[1] = options.dresultdr[0];
             options.dresultdr[2] = options.dresultdr[0];
         }
+        c = 3 + save_alpha;
+    }
+
+    // Fill in the remaining files with the fill color
+    for ( ; c < options.nchannels; ++c) {
+        result[c] = options.fill;
+        if (options.dresultds) options.dresultds[c] = 0;
+        if (options.dresultdt) options.dresultdt[c] = 0;
+        if (options.dresultdr) options.dresultdr[c] = 0;
     }
 }
 
@@ -655,13 +740,13 @@ TextureSystemImpl::texture (TextureHandle *texture_handle_,
     if (options.swrap == TextureOpt::WrapDefault)
         options.swrap = (TextureOpt::Wrap)texturefile->swrap();
     if (options.swrap == TextureOpt::WrapPeriodic && ispow2(spec.width))
-        options.swrap_func = wrap_periodic_pow2;
+        options.swrap_func = wrap_periodic2;
     else
         options.swrap_func = wrap_functions[(int)options.swrap];
     if (options.twrap == TextureOpt::WrapDefault)
         options.twrap = (TextureOpt::Wrap)texturefile->twrap();
     if (options.twrap == TextureOpt::WrapPeriodic && ispow2(spec.height))
-        options.twrap_func = wrap_periodic_pow2;
+        options.twrap_func = wrap_periodic2;
     else
         options.twrap_func = wrap_functions[(int)options.twrap];
 
@@ -671,7 +756,7 @@ TextureSystemImpl::texture (TextureHandle *texture_handle_,
     bool ok = (this->*lookup) (*texturefile, thread_info, options,
                                s, t, dsdx, dtdx, dsdy, dtdy, result);
     if (actualchannels < options.nchannels)
-        fill_gray_channels (spec, options, result);
+        fill_channels (spec, options, result);
     return ok;
 }
 
@@ -685,16 +770,11 @@ TextureSystemImpl::texture (ustring filename, TextureOptions &options,
                             VaryingRef<float> dsdy, VaryingRef<float> dtdy,
                             float *result)
 {
-    Perthread *thread_info = get_perthread_info();
-    TextureHandle *texture_handle = get_texture_handle (filename, thread_info);
-    if (! texture_handle)
-        return false;
     bool ok = true;
     for (int i = beginactive;  i < endactive;  ++i) {
         if (runflags[i]) {
             TextureOpt opt (options, i);
-            ok &= texture (texture_handle, thread_info,
-                           opt, s[i], t[i], dsdx[i], dtdx[i],
+            ok &= texture (filename, opt, s[i], t[i], dsdx[i], dtdx[i],
                            dsdy[i], dtdy[i], result+i*options.nchannels);
         }
     }
@@ -713,16 +793,13 @@ TextureSystemImpl::texture_lookup_nomip (TextureFile &texturefile,
                             float *result)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
     float* dresultds = options.dresultds;
     float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
+    for (int c = 0;  c < options.actualchannels;  ++c) {
+        result[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+    }
     // If the user only provided us with one pointer, clear both to simplify
     // the rest of the code, but only after we zero out the data for them so
     // they know something went wrong.
@@ -838,7 +915,7 @@ compute_miplevels (TextureSystemImpl::TextureFile &texturefile,
                    int *miplevel, float *levelweight)
 {
     ImageCacheFile::SubimageInfo &subinfo (texturefile.subimageinfo(options.subimage));
-    float levelblend = 0.0f;
+    float levelblend;
     int nmiplevels = (int)subinfo.levels.size();
     for (int m = 0;  m < nmiplevels;  ++m) {
         // Compute the filter size (minor axis) in raster space at this
@@ -899,16 +976,13 @@ TextureSystemImpl::texture_lookup_trilinear_mipmap (TextureFile &texturefile,
                             float *result)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
     float* dresultds = options.dresultds;
     float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
+    for (int c = 0;  c < options.actualchannels;  ++c) {
+        result[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+    }
     // If the user only provided us with one pointer, clear both to simplify
     // the rest of the code, but only after we zero out the data for them so
     // they know something went wrong.
@@ -1078,16 +1152,13 @@ TextureSystemImpl::texture_lookup (TextureFile &texturefile,
                             float *result)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
     float* dresultds = options.dresultds;
     float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
+    for (int c = 0;  c < options.actualchannels;  ++c) {
+        result[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+    }
     // If the user only provided us with one pointer, clear both to simplify
     // the rest of the code, but only after we zero out the data for them so
     // they know something went wrong.
@@ -1188,7 +1259,7 @@ TextureSystemImpl::texture_lookup (TextureFile &texturefile,
     }
 
     if (sumw > 0) {
-       for (int c = 0;  c < options.nchannels;  ++c) {
+       for (int c = 0;  c < options.actualchannels;  ++c) {
            result[c] /= sumw;
            if (dresultds) dresultds[c] /= sumw;
            if (dresultdt) dresultdt[c] /= sumw;
@@ -1220,8 +1291,7 @@ TextureSystemImpl::pole_color (TextureFile &texturefile,
     if (! levelinfo.onetile)
         return NULL;   // Only compute color for one-tile MIP levels
     const ImageSpec &spec (levelinfo.spec);
-    size_t pixelsize = texturefile.pixelsize(subimage);
-    bool eightbit = texturefile.eightbit(subimage);
+    size_t pixelsize = texturefile.pixelsize();
     if (! levelinfo.polecolorcomputed) {
         static spin_mutex mutex;   // Protect everybody's polecolor
         spin_lock lock (mutex);
@@ -1239,7 +1309,7 @@ TextureSystemImpl::pole_color (TextureFile &texturefile,
                 const unsigned char *texel = tile->bytedata() + y*spec.tile_width*pixelsize;
                 for (size_t i = 0;  i < width;  ++i, texel += pixelsize)
                     for (int c = 0;  c < spec.nchannels;  ++c)
-                        if (eightbit)
+                        if (texturefile.eightbit())
                             p[c] += uchar2float(texel[c]);
                         else
                             p[c] += ((const float *)texel)[c];
@@ -1331,7 +1401,7 @@ TextureSystemImpl::accum_sample_closest (float s, float t, int miplevel,
     TileRef &tile (thread_info->tile);
     if (! tile  ||  ! ok)
         return false;
-    size_t channelsize = texturefile.channelsize(options.subimage);
+    size_t channelsize = texturefile.channelsize();
     int offset = spec.nchannels * (tile_t * spec.tile_width + tile_s) + options.firstchannel;
     DASSERT ((size_t)offset < spec.nchannels*spec.tile_pixels());
     if (channelsize == 1) {
@@ -1344,14 +1414,6 @@ TextureSystemImpl::accum_sample_closest (float s, float t, int miplevel,
         const float *texel = tile->data() + offset;
         for (int c = 0;  c < options.actualchannels;  ++c)
             accum[c] += weight * texel[c];
-    }
-
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
     }
     return true;
 }
@@ -1412,8 +1474,8 @@ TextureSystemImpl::accum_sample_bilinear (float s, float t, int miplevel,
     bool s_onetile = (tile_s != tilewidthmask) & (stex[0]+1 == stex[1]);
     bool t_onetile = (tile_t != tileheightmask) & (ttex[0]+1 == ttex[1]);
     bool onetile = (s_onetile & t_onetile);
-    size_t channelsize = texturefile.channelsize(options.subimage);
-    size_t pixelsize = texturefile.pixelsize(options.subimage);
+    size_t channelsize = texturefile.channelsize();
+    size_t pixelsize = texturefile.pixelsize();
     if (onetile &&
 //        (svalid[0] & svalid[1] & tvalid[0] & tvalid[1])) {
         valid_storage.ivalid == all_valid) {
@@ -1532,16 +1594,6 @@ TextureSystemImpl::accum_sample_bilinear (float s, float t, int miplevel,
         }
     }
 
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = bilerp (1.0f*svalid[0]*tvalid[0], 1.0f*svalid[1]*tvalid[0],
-                          1.0f*svalid[0]*tvalid[1], 1.0f*svalid[1]*tvalid[1],
-                          sfrac, tfrac);
-        f *= weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
-    }
     return true;
 }
 
@@ -1641,8 +1693,8 @@ TextureSystemImpl::accum_sample_bicubic (float s, float t, int miplevel,
         }
     }
     bool onetile = (s_onetile & t_onetile);
-    size_t channelsize = texturefile.channelsize(options.subimage);
-    size_t pixelsize = texturefile.pixelsize(options.subimage);
+    size_t channelsize = texturefile.channelsize();
+    size_t pixelsize = texturefile.pixelsize();
     if (onetile & allvalid) {
         // Shortcut if all the texels we need are on the same tile
         TileID id (texturefile, options.subimage, miplevel,
@@ -1726,7 +1778,7 @@ TextureSystemImpl::accum_sample_bicubic (float s, float t, int miplevel,
     float g0y = wy[0] + wy[1]; float h0y = (wy[1] / g0y);
     float g1y = wy[2] + wy[3]; float h1y = (wy[3] / g1y);
 
-    if (texturefile.eightbit(options.subimage)) {
+    if (texturefile.eightbit()) {
         for (int c = 0;  c < nc; ++c) {
             float col[4];
             for (int j = 0;  j < 4; ++j) {
@@ -1841,21 +1893,6 @@ TextureSystemImpl::accum_sample_bicubic (float s, float t, int miplevel,
         }
     }
 
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float col[4];
-        for (int j = 0;  j < 4; ++j) {
-            float lx = Imath::lerp (1.0f*tvalid[j]*svalid[0], 1.0f*tvalid[j]*svalid[1], h0x);
-            float rx = Imath::lerp (1.0f*tvalid[j]*svalid[2], 1.0f*tvalid[j]*svalid[3], h1x);
-            col[j]   = Imath::lerp (lx, rx, g1x);
-        }
-        float ly = Imath::lerp (col[0], col[1], h0y);
-        float ry = Imath::lerp (col[2], col[3], h1y);
-        float f = weight * Imath::lerp (ly, ry, g1y) * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
-    }
     return true;
 }
 
@@ -1891,7 +1928,7 @@ TextureSystemImpl::visualize_ellipse (const std::string &name,
     float scale = 100;
     int w = 256, h = 256;
     ImageSpec spec (w, h, 3);
-    ImageBuf ib (spec);
+    ImageBuf ib (name, spec);
     static float dark[3] = { 0.2, 0.2, 0.2 };
     static float white[3] = { 1, 1, 1 };
     static float grey[3] = { 0.5, 0.5, 0.5 };
@@ -1930,7 +1967,7 @@ TextureSystemImpl::visualize_ellipse (const std::string &name,
                                            yy-size/2, yy+size/2+1));
     }
 
-    ib.write (name);
+    ib.save ();
 }
 
 
@@ -1970,7 +2007,7 @@ TextureSystemImpl::unit_test_texture ()
 
 
 
-}  // end namespace pvt
+};  // end namespace pvt
 
 }
 OIIO_NAMESPACE_EXIT

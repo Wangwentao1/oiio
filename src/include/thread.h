@@ -70,7 +70,19 @@
 #pragma GCC diagnostic error "-Wunused-variable"
 #endif
 
-#if defined(_MSC_VER)
+#ifndef USE_TBB
+#  define USE_TBB 0
+#endif
+
+// Include files we need for atomic counters.
+// Some day, we hope this is all replaced by use of std::atomic<>.
+#if USE_TBB
+#  include <tbb/atomic.h>
+   using tbb::atomic;
+#  include <tbb/spin_mutex.h>
+#endif
+
+#if defined(_MSC_VER) && !USE_TBB
 #  include <windows.h>
 #  include <winbase.h>
 #  pragma intrinsic (_InterlockedExchangeAdd)
@@ -93,21 +105,15 @@ InterlockedExchangeAdd64 (volatile long long *Addend, long long Value)
 #  endif
 #endif
 
+#ifdef __APPLE__
+#  include <libkern/OSAtomic.h>
+#endif
+
 #if defined(__GNUC__) && (defined(_GLIBCXX_ATOMIC_BUILTINS) || (__GNUC__ * 100 + __GNUC_MINOR__ >= 401))
+#if !defined(__FreeBSD__) || defined(__x86_64__)
 #define USE_GCC_ATOMICS
 #endif
-
-
-// OIIO_THREAD_ALLOW_DCLP, if set to 0, prevents us from using a dodgy
-// "double checked lock pattern" (DCLP).  We are very careful to construct
-// it safely and correctly, and these uses improve thread performance for
-// us.  But it confuses Thread Sanitizer, so this switch allows you to turn
-// it off. Also set to 0 if you don't believe that we are correct in
-// allowing this construct on all platforms.
-#ifndef OIIO_THREAD_ALLOW_DCLP
-#define OIIO_THREAD_ALLOW_DCLP 1
 #endif
-
 
 OIIO_NAMESPACE_ENTER
 {
@@ -122,7 +128,6 @@ public:
     void unlock () { }
     void lock_shared () { }
     void unlock_shared () { }
-    bool try_lock () { return true; }
 };
 
 /// Null lock that can be substituted for a real one to test how much
@@ -191,8 +196,11 @@ private:
 
 typedef null_mutex mutex;
 typedef null_mutex recursive_mutex;
+typedef null_mutex shared_mutex;
 typedef null_lock<mutex> lock_guard;
 typedef null_lock<recursive_mutex> recursive_lock_guard;
+typedef null_lock<shared_mutex> shared_lock;
+typedef null_lock<shared_mutex> unique_lock;
 
 
 #else
@@ -201,11 +209,27 @@ typedef null_lock<recursive_mutex> recursive_lock_guard;
 
 typedef boost::mutex mutex;
 typedef boost::recursive_mutex recursive_mutex;
+typedef boost::shared_mutex shared_mutex;
 typedef boost::lock_guard< boost::mutex > lock_guard;
 typedef boost::lock_guard< boost::recursive_mutex > recursive_lock_guard;
+typedef boost::shared_lock< boost::shared_mutex > shared_lock;
+typedef boost::unique_lock< boost::shared_mutex > unique_lock;
 using boost::thread_specific_ptr;
 
 #endif
+# if defined(_WIN32) && not defined(_WIN64) 
+  inline LONGLONG _InterlockedCompareExchange64(LONGLONG volatile* Destination, LONGLONG Exchange, LONGLONG Comperand)
+   {
+	__asm {
+		mov esi, [Destination]
+		mov ebx, dword ptr [Exchange]
+		mov ecx, dword ptr [Exchange + 4]
+		mov eax, dword ptr [Comperand]
+		mov edx, dword ptr [Comperand + 4]
+   		lock cmpxchg8b [esi]
+       	}
+  }
+#  endif
 
 
 
@@ -214,10 +238,14 @@ using boost::thread_specific_ptr;
 inline int
 atomic_exchange_and_add (volatile int *at, int x)
 {
-#ifdef NOTHREADS
-    int r = *at;  *at += x;  return r;
-#elif defined(USE_GCC_ATOMICS)
+#ifdef USE_GCC_ATOMICS
     return __sync_fetch_and_add ((int *)at, x);
+#elif USE_TBB
+    atomic<int> *a = (atomic<int> *)at;
+    return a->fetch_and_add (x);
+#elif defined(no__APPLE__)
+    // Apple, not inline for Intel (only PPC?)
+    return OSAtomicAdd32Barrier (x, at) - x;
 #elif defined(_MSC_VER)
     // Windows
     return _InterlockedExchangeAdd ((volatile LONG *)at, x);
@@ -231,16 +259,24 @@ atomic_exchange_and_add (volatile int *at, int x)
 inline long long
 atomic_exchange_and_add (volatile long long *at, long long x)
 {
-#ifdef NOTHREADS
-    long long r = *at;  *at += x;  return r;
-#elif defined(USE_GCC_ATOMICS)
+#ifdef USE_GCC_ATOMICS
     return __sync_fetch_and_add (at, x);
+#elif USE_TBB
+    atomic<long long> *a = (atomic<long long> *)at;
+    return a->fetch_and_add (x);
+#elif defined(no__APPLE__)
+    // Apple, not inline for Intel (only PPC?)
+    return OSAtomicAdd64Barrier (x, at) - x;
 #elif defined(_MSC_VER)
     // Windows
 #  if defined(_WIN64)
     return _InterlockedExchangeAdd64 ((volatile LONGLONG *)at, x);
 #  else
-    return InterlockedExchangeAdd64 ((volatile LONGLONG *)at, x);
+        LONGLONG Old; 	 
+ 	do Old = *at; 	 
+ 	while (_InterlockedCompareExchange64(at, Old + x, Old) != Old); 		
+	return Old;
+   
 #  endif
 #else
 #   error No atomics on this platform.
@@ -254,18 +290,17 @@ atomic_exchange_and_add (volatile long long *at, long long x)
 ///        *at = newval;  return true;
 ///    } else {
 ///        return false;
-///    }
+///
 inline bool
 atomic_compare_and_exchange (volatile int *at, int compareval, int newval)
 {
-#ifdef NOTHREADS
-    if (*at == compareval) {
-        *at = newval;  return true;
-    } else {
-        return false;
-    }
-#elif defined(USE_GCC_ATOMICS)
+#ifdef USE_GCC_ATOMICS
     return __sync_bool_compare_and_swap (at, compareval, newval);
+#elif USE_TBB
+    atomic<int> *a = (atomic<int> *)at;
+    return a->compare_and_swap (newval, compareval) == newval;
+#elif defined(no__APPLE__)
+    return OSAtomicCompareAndSwap32Barrier (compareval, newval, at);
 #elif defined(_MSC_VER)
     return (_InterlockedCompareExchange ((volatile LONG *)at, newval, compareval) == compareval);
 #else
@@ -278,14 +313,13 @@ atomic_compare_and_exchange (volatile int *at, int compareval, int newval)
 inline bool
 atomic_compare_and_exchange (volatile long long *at, long long compareval, long long newval)
 {
-#ifdef NOTHREADS
-    if (*at == compareval) {
-        *at = newval;  return true;
-    } else {
-        return false;
-    }
-#elif defined(USE_GCC_ATOMICS)
+#ifdef USE_GCC_ATOMICS
     return __sync_bool_compare_and_swap (at, compareval, newval);
+#elif USE_TBB
+    atomic<long long> *a = (atomic<long long> *)at;
+    return a->compare_and_swap (newval, compareval) == newval;
+#elif defined(no__APPLE__)
+    return OSAtomicCompareAndSwap64Barrier (compareval, newval, at);
 #elif defined(_MSC_VER)
     return (_InterlockedCompareExchange64 ((volatile LONGLONG *)at, newval, compareval) == compareval);
 #else
@@ -300,7 +334,9 @@ atomic_compare_and_exchange (volatile long long *at, long long compareval, long 
 inline void
 yield ()
 {
-#if defined(__GNUC__)
+#if USE_TBB
+    __TBB_Yield ();
+#elif defined(__GNUC__)
     sched_yield ();
 #elif defined(_MSC_VER)
     SwitchToThread ();
@@ -315,14 +351,12 @@ yield ()
 inline void
 pause (int delay)
 {
-#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-    for (int i = 0; i < delay; ++i)
+#if USE_TBB
+    __TBB_Pause(delay);
+#elif defined(__GNUC__)
+    for (int i = 0; i < delay; ++i) {
         __asm__ __volatile__("pause;");
-
-#elif defined(__GNUC__) && (defined(__arm__) || defined(__s390__))
-    for (int i = 0; i < delay; ++i)
-        __asm__ __volatile__("NOP;");
-
+    }
 #elif defined(_MSC_VER)
     for (int i = 0; i < delay; ++i) {
 #if defined (_WIN64)
@@ -331,7 +365,6 @@ pause (int delay)
         _asm  pause
 #endif /* _WIN64 */
     }
-
 #else
     // No pause on this platform, just punt
     for (int i = 0; i < delay; ++i) ;
@@ -353,11 +386,14 @@ public:
             yield();
         }
     }
-
 private:
     int m_count;
 };
 
+
+
+#if (! USE_TBB)
+// If we're not using TBB, we need to define our own atomic<>.
 
 
 /// Atomic integer.  Increment, decrement, add, and subtract in a
@@ -430,15 +466,14 @@ public:
     }
 
 private:
-#ifdef __arm__
-    OIIO_ALIGN(8)
-#endif 
     volatile mutable T m_val;
 
     // Disallow copy construction by making private and unimplemented.
     atomic (atomic const &);
 };
 
+
+#endif /* ! USE_TBB */
 
 
 #ifdef NOTHREADS
@@ -460,9 +495,16 @@ typedef atomic<long long> atomic_ll;
 typedef null_mutex spin_mutex;
 typedef null_lock<spin_mutex> spin_lock;
 
+#elif USE_TBB
+
+// Use TBB's spin locks
+typedef tbb::spin_mutex spin_mutex;
+typedef tbb::spin_mutex::scoped_lock spin_lock;
+
+
 #else
 
-// Define our own spin locks.
+// Define our own spin locks.  Do we trust them?
 
 
 /// A spin_mutex is semantically equivalent to a regular mutex, except
@@ -504,66 +546,63 @@ public:
     /// Acquire the lock, spin until we have it.
     ///
     void lock () {
+#if defined(no__APPLE__)
+        // OS X has dedicated spin lock routines, may as well use them.
+        OSSpinLockLock ((OSSpinLock *)&m_locked);
+#else
         // To avoid spinning too tightly, we use the atomic_backoff to
         // provide increasingly longer pauses, and if the lock is under
         // lots of contention, eventually yield the timeslice.
         atomic_backoff backoff;
-
         // Try to get ownership of the lock. Though experimentation, we
         // found that OIIO_UNLIKELY makes this just a bit faster on 
         // gcc x86/x86_64 systems.
         while (! OIIO_UNLIKELY(try_lock())) {
-#if OIIO_THREAD_ALLOW_DCLP
+            do {
+                backoff();
+            } while (*(volatile int *)&m_locked);
             // The full try_lock() involves a compare_and_swap, which
             // writes memory, and that will lock the bus.  But a normal
             // read of m_locked will let us spin until the value
             // changes, without locking the bus. So it's faster to
             // check in this manner until the mutex appears to be free.
-            // HOWEVER... Thread Sanitizer things this is an instance of
-            // an unsafe "double checked lock pattern" (DCLP) and flags it
-            // as an error. I think it's a false negative, because the
-            // outer loop is still an atomic check, the inner non-atomic
-            // loop only serves to delay, and can't lead to a true data
-            // race. But we provide this build-time switch to, at least,
-            // give a way to use tsan for other checks.
-            do {
-                backoff();
-            } while (m_locked);
-#else
-            backoff();
-#endif
         }
+#endif
     }
 
     /// Release the lock that we hold.
     ///
     void unlock () {
-#if defined(__GNUC__)
-        // Fastest way to do it is with a store with "release" semantics
-        __sync_lock_release (&m_locked);
-        //   Equivalent, x86 specific code:
-        //   __asm__ __volatile__("": : :"memory");
-        //   m_locked = 0;
-#elif defined(_MSC_VER)
-        MemoryBarrier ();
-        m_locked = 0;
+#if defined(no__APPLE__)
+        OSSpinLockUnlock ((OSSpinLock *)&m_locked);
+#elif defined(__GNUC__)
+        // GCC gives us an intrinsic that is even better, an atomic
+        // assignment of 0 with "release" barrier semantics.
+        __sync_lock_release ((volatile int *)&m_locked);
 #else
         // Otherwise, just assign zero to the atomic (but that's a full 
         // memory barrier).
-        *(atomic_int *)&m_locked = 0;
+        m_locked = 0;
 #endif
     }
 
     /// Try to acquire the lock.  Return true if we have it, false if
     /// somebody else is holding the lock.
     bool try_lock () {
-#if defined(__GNUC__)
+#if defined(no__APPLE__)
+        return OSSpinLockTry ((OSSpinLock *)&m_locked);
+#else
+#  if USE_TBB
+        // TBB's compare_and_swap returns the original value
+        return m_locked.compare_and_swap (0, 1) == 0;
+#  elif defined(__GNUC__)
         // GCC gives us an intrinsic that is even better -- an atomic
         // exchange with "acquire" barrier semantics.
-        return __sync_lock_test_and_set (&m_locked, 1) == 0;
-#else
+        return __sync_lock_test_and_set ((volatile int *)&m_locked, 1) == 0;
+#  else
         // Our compare_and_swap returns true if it swapped
-        return atomic_compare_and_exchange (&m_locked, 0, 1);
+        return m_locked.bool_compare_and_swap (0, 1);
+#  endif
 #endif
     }
 
@@ -574,14 +613,14 @@ public:
         lock_guard (spin_mutex &fm) : m_fm(fm) { m_fm.lock(); }
         ~lock_guard () { m_fm.unlock(); }
     private:
-        lock_guard(); // Do not implement
+        lock_guard(); // Do not implement (even though TBB does)
         lock_guard(const lock_guard& other); // Do not implement
         lock_guard& operator = (const lock_guard& other); // Do not implement
         spin_mutex & m_fm;
     };
 
 private:
-    volatile int m_locked;  ///< Atomic counter is zero if nobody holds the lock
+    atomic_int m_locked;  ///< Atomic counter is zero if nobody holds the lock
 };
 
 
@@ -637,13 +676,8 @@ public:
         // Spin until the last reader is done, at which point we will be
         // the sole owners and nobody else (reader or writer) can acquire
         // the resource until we release it.
-#if OIIO_THREAD_ALLOW_DCLP
         while (*(volatile int *)&m_readers > 0)
                 ;
-#else
-        while (m_readers > 0)
-                ;
-#endif
     }
 
     /// Release the writer lock.

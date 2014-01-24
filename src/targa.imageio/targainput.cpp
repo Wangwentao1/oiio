@@ -50,8 +50,6 @@ public:
     virtual ~TGAInput () { close(); }
     virtual const char * format_name (void) const { return "targa"; }
     virtual bool open (const std::string &name, ImageSpec &newspec);
-    virtual bool open (const std::string &name, ImageSpec &newspec,
-                       const ImageSpec &config);
     virtual bool close ();
     virtual bool read_native_scanline (int y, int z, void *data);
 
@@ -62,7 +60,6 @@ private:
     tga_footer m_foot;                ///< Targa 2.0 footer
     unsigned int m_ofs_colcorr_tbl;   ///< Offset to colour correction table
     tga_alpha_type m_alpha;           ///< Alpha type
-    bool m_keep_unassociated_alpha;   ///< Do not convert unassociated alpha
     std::vector<unsigned char> m_buf; ///< Buffer the image pixels
 
     /// Reset everything to initial state
@@ -72,7 +69,6 @@ private:
         m_buf.clear ();
         m_ofs_colcorr_tbl = 0;
         m_alpha = TGA_ALPHA_NONE;
-        m_keep_unassociated_alpha = false;
     }
 
     /// Helper function: read the image.
@@ -188,12 +184,7 @@ TGAInput::open (const std::string &name, ImageSpec &newspec)
         return false;
     }
 
-    m_alpha = TGA_ALPHA_NONE;
-    if (((m_tga.type == TYPE_RGB || m_tga.type == TYPE_RGB_RLE) && m_tga.bpp == 32)
-        || ((m_tga.type == TYPE_GRAY || m_tga.type == TYPE_GRAY_RLE) && m_tga.bpp > 8)) {
-        m_alpha = (m_tga.attr & 0x08) > 0 ? TGA_ALPHA_USEFUL : TGA_ALPHA_NONE;
-    }
-
+    m_alpha = (m_tga.attr & 0x0F) > 0 ? TGA_ALPHA_USEFUL : TGA_ALPHA_NONE;
 
     m_spec = ImageSpec ((int)m_tga.width, (int)m_tga.height,
                         // colour channels
@@ -461,26 +452,10 @@ TGAInput::open (const std::string &name, ImageSpec &newspec)
         // that it's missing :)
     }
 
-    if (m_spec.alpha_channel != -1 && m_alpha != TGA_ALPHA_PREMULTIPLIED)
-        if (m_keep_unassociated_alpha)
-            m_spec.attribute ("oiio:UnassociatedAlpha", 1);
-
     fseek (m_file, ofs, SEEK_SET);
 
     newspec = spec ();
     return true;
-}
-
-
-
-bool
-TGAInput::open (const std::string &name, ImageSpec &newspec,
-                const ImageSpec &config)
-{
-    // Check 'config' for any special requests
-    if (config.get_int_attribute("oiio:UnassociatedAlpha", 0) == 1)
-        m_keep_unassociated_alpha = true;
-    return open (name, newspec);
 }
 
 
@@ -495,16 +470,34 @@ TGAInput::decode_pixel (unsigned char *in, unsigned char *out,
     switch (m_tga.type) {
     case TYPE_PALETTED:
     case TYPE_PALETTED_RLE:
-        for (int i = 0;  i < bytespp;  ++i)
-            k |= in[i] << (8*i);  // Assemble it in little endian order
+        switch (bytespp) {
+        case 1:
+            k = in[0];
+            break;
+        case 2:
+            k = *((unsigned int *)in) & 0x0000FFFF;
+            if (bigendian())
+                swap_endian (&k);
+            break;
+        case 3:
+            k = *((unsigned int *)in) & 0x00FFFFFF;
+            if (bigendian())
+                swap_endian (&k);
+            break;
+        case 4:
+            k = *((unsigned int *)in);
+            if (bigendian())
+                swap_endian (&k);
+            break;
+        }
         k = (m_tga.cmap_first + k) * palbytespp;
         switch (palbytespp) {
         case 2:
             // see the comment for 16bpp RGB below for an explanation of this
-            out[0] = bit_range_convert<5, 8> ((palette[k + 1] & 0x7C) >> 2);
+            out[2] = bit_range_convert<5, 8> ((palette[k + 1] & 0x7C) >> 2);
             out[1] = bit_range_convert<5, 8> (((palette[k + 0] & 0xE0) >> 5)
                                             | ((palette[k + 1] & 0x03) << 3));
-            out[2] = bit_range_convert<5, 8> (palette[k + 0] & 0x1F);
+            out[0] = bit_range_convert<5, 8> (palette[k + 0] & 0x1F);
             break;
         case 3:
             out[0] = palette[k + 2];
@@ -571,41 +564,6 @@ TGAInput::decode_pixel (unsigned char *in, unsigned char *out,
         } else
             memcpy (out, in, bytespp);
         break;
-    }
-}
-
-
-
-template <class T>
-static void 
-associateAlpha (T * data, int size, int channels, int alpha_channel, float gamma)
-{
-    T max = std::numeric_limits<T>::max();
-    if (gamma == 1) {
-        for (int x = 0;  x < size;  ++x, data += channels)
-            for (int c = 0;  c < channels;  c++)
-                if (c != alpha_channel){
-                    unsigned int f = data[c];
-                    data[c] = (f * data[alpha_channel]) / max;
-                }
-    }
-    else { //With gamma correction
-        float inv_max = 1.0 / max;
-        for (int x = 0;  x < size;  ++x, data += channels) {
-            float alpha_associate = pow(data[alpha_channel]*inv_max, gamma);
-            // We need to transform to linear space, associate the alpha, and
-            // then transform back.  That is, if D = data[c], we want
-            //
-            // D' = max * ( (D/max)^(1/gamma) * (alpha/max) ) ^ gamma
-            //
-            // This happens to simplify to something which looks like
-            // multiplying by a nonlinear alpha:
-            //
-            // D' = D * (alpha/max)^gamma
-            for (int c = 0;  c < channels;  c++)
-                if (c != alpha_channel)
-                    data[c] = static_cast<T>(data[c] * alpha_associate);
-        }
     }
 }
 
@@ -744,18 +702,6 @@ TGAInput::readimg ()
             memcpy(tmp, src, bytespp * m_spec.width / 2);
             memcpy(src, dst, bytespp * m_spec.width / 2);
             memcpy(dst, tmp, bytespp * m_spec.width / 2);
-        }
-    }
-
-    if (m_alpha != TGA_ALPHA_PREMULTIPLIED) {
-        // Convert to associated unless we were requested not to do so
-        if (m_spec.alpha_channel != -1 && !m_keep_unassociated_alpha) {
-            int size = m_spec.width * m_spec.height;
-            float gamma = m_spec.get_float_attribute ("oiio:Gamma", 1.0f);
-
-            associateAlpha ((unsigned char *)&m_buf[0], size,
-                            m_spec.nchannels, m_spec.alpha_channel, 
-                            gamma);
         }
     }
 

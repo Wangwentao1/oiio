@@ -43,7 +43,6 @@
 #include "imagecache.h"
 #include "imagebuf.h"
 #include "imagebufalgo.h"
-#include "filesystem.h"
 
 #ifdef __APPLE__
  using std::isinf;
@@ -158,6 +157,16 @@ read_input (const std::string &filename, ImageBuf &img,
 
 
 
+static bool
+same_size (const ImageBuf &A, const ImageBuf &B)
+{
+    const ImageSpec &a (A.spec()), &b (B.spec());
+    return (a.width == b.width && a.height == b.height &&
+            a.depth == b.depth && a.nchannels == b.nchannels);
+}
+
+
+
 // function that standarize printing NaN and Inf values on
 // Windows (where they are in 1.#INF, 1.#NAN format) and all
 // others platform
@@ -195,7 +204,6 @@ print_subimage (ImageBuf &img0, int subimage, int miplevel)
 int
 main (int argc, char *argv[])
 {
-    Filesystem::convert_native_arguments (argc, (const char **)argv);
     getargs (argc, argv);
 
     std::cout << "Comparing \"" << filenames[0] 
@@ -210,6 +218,9 @@ main (int argc, char *argv[])
     else
         imagecache->attribute ("max_memory_MB", 2048.0);
     imagecache->attribute ("autotile", 256);
+#ifdef DEBUG
+    imagecache->attribute ("statistics:level", 2);
+#endif
     // force a full diff, even for files tagged with the same
     // fingerprint, just in case some mistake has been made.
     imagecache->attribute ("deduplicate", 0);
@@ -250,6 +261,24 @@ main (int argc, char *argv[])
                 ! read_input (filenames[1], img1, imagecache, subimage, m))
                 return ErrFile;
 
+            // Compare the dimensions of the images.  Fail if they
+            // aren't the same resolution and number of channels.  No
+            // problem, though, if they aren't the same data type.
+            if (! same_size (img0, img1)) {
+                print_subimage (img0, subimage, m);
+                std::cout << "Images do not match in size: ";
+                std::cout << "(" << img0.spec().width << "x" << img0.spec().height;
+                if (img0.spec().depth > 1)
+                    std::cout << "x" << img0.spec().depth;
+                std::cout << "x" << img0.spec().nchannels << ")";
+                std::cout << " versus ";
+                std::cout << "(" << img1.spec().width << "x" << img1.spec().height;
+                if (img1.spec().depth > 1)
+                    std::cout << "x" << img1.spec().depth;
+                std::cout << "x" << img1.spec().nchannels << ")\n";
+                ret = ErrDifferentSize;
+                break;
+            }
             if (img0.deep() != img1.deep()) {
                 std::cout << "One image contains deep data, the other does not\n";
                 ret = ErrDifferentSize;
@@ -267,10 +296,8 @@ main (int argc, char *argv[])
             ImageBufAlgo::compare (img0, img1, failthresh, warnthresh, cr);
 
             int yee_failures = 0;
-            if (perceptual && ! img0.deep()) {
-                ImageBufAlgo::CompareResults cr;
-                yee_failures = ImageBufAlgo::compare_Yee (img0, img1, cr);
-            }
+            if (perceptual && ! img0.deep())
+                yee_failures = ImageBufAlgo::compare_Yee (img0, img1);
 
             if (cr.nfail > (failpercent/100.0 * npels) || cr.maxerror > hardfail ||
                 yee_failures > (failpercent/100.0 * npels)) {
@@ -296,12 +323,7 @@ main (int argc, char *argv[])
                     std::cout << " @ (" << cr.maxx << ", " << cr.maxy;
                     if (img0.spec().depth > 1)
                         std::cout << ", " << cr.maxz;
-                    if (cr.maxc < (int)img0.spec().channelnames.size())
-                        std::cout << ", " << img0.spec().channelnames[cr.maxc] << ')';
-                    else if (cr.maxc < (int)img1.spec().channelnames.size())
-                        std::cout << ", " << img1.spec().channelnames[cr.maxc] << ')';
-                    else
-                        std::cout << ", channel " << cr.maxc << ')';
+                    std::cout << ", " << img0.spec().channelnames[cr.maxc] << ')';
                 }
                 std::cout << "\n";
 // when Visual Studio is used float values in scientific foramt are 
@@ -329,7 +351,7 @@ main (int argc, char *argv[])
             // right now, because ImageBuf doesn't really know how to
             // write subimages.
             if (diffimage.size() && (cr.maxerror != 0 || !outdiffonly)) {
-                ImageBuf diff (img0.spec());
+                ImageBuf diff (diffimage, img0.spec());
                 ImageBuf::ConstIterator<float,float> pix0 (img0);
                 ImageBuf::ConstIterator<float,float> pix1 (img1);
                 ImageBuf::Iterator<float,float> pixdiff (diff);
@@ -351,7 +373,7 @@ main (int argc, char *argv[])
                     }
                 }
 
-                diff.write (diffimage);
+                diff.save (diffimage);
 
                 // Clear diff image name so we only save the first
                 // non-matching subimage.
@@ -378,7 +400,6 @@ main (int argc, char *argv[])
     else
         std::cout << "FAILURE\n";
 
-    imagecache->invalidate_all (true);
     ImageCache::destroy (imagecache);
     return ret;
 }

@@ -39,7 +39,7 @@
 #ifndef OPENIMAGEIO_OPTPARSER_H
 #define OPENIMAGEIO_OPTPARSER_H
 
-#include <string>
+#include <cstring>
 
 OIIO_NAMESPACE_ENTER
 {

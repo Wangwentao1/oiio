@@ -40,13 +40,13 @@
 ///
 /// Handy macros for debugging assertions.
 ///
+///  - ABORT (if not already defined) is defined to print an error message
+///            and then abort().
 ///  - ASSERT (if not already defined) is defined to check if a condition
 ///            is met, and if not, calls ABORT with an error message
 ///            indicating the module and line where it occurred.
-///  - ASSERT_MSG: like ASSERT, but takes printf-like extra arguments
-///  - DASSERT is the same as ASSERT when NDEBUG is not defined but a
-///            no-op when not in debug mode.
-///  - DASSERT_MSG: like DASSERT, but takes printf-like extra arguments
+///  - DASSERT is the same as ASSERT when in DEBUG mode, but a no-op when
+///            not in debug mode.
 ///
 /// The presumed usage is that you want ASSERT for dire conditions that
 /// must be checked at runtime even in an optimized build.  DASSERT is
@@ -60,6 +60,13 @@
 /// trying to recover gracefully.
 
 
+/// ABORT(msg) prints the message to stderr and then aborts.
+///
+#ifndef ABORT
+# define ABORT(msg) fprintf(stderr,"%s",msg), abort()
+#endif
+
+
 /// ASSERT(condition) checks if the condition is met, and if not, prints
 /// an error message indicating the module and line where the error
 /// occurred and then aborts.
@@ -67,47 +74,37 @@
 #ifndef ASSERT
 # define ASSERT(x)                                              \
     ((x) ? ((void)0)                                            \
-         : (fprintf (stderr, "%s:%u: failed assertion '%s'\n",  \
+         : (fprintf (stderr, "%s:%u: Failed assertion '%s'\n",  \
                      __FILE__, __LINE__, #x), abort()))
 #endif
 
-/// ASSERT_MSG(condition,msg,...) is like ASSERT, but lets you add
+/// ASSERTMSG(condition,msg,...) is like ASSERT, but lets you add
 /// formatted output (a la printf) to the failure message.
-#ifndef ASSERT_MSG
-# define ASSERT_MSG(x,msg,...)                                      \
-    ((x) ? ((void)0)                                                \
-         : (fprintf (stderr, "%s:%u: failed assertion '%s': " msg "\n", \
-                    __FILE__, __LINE__, #x,  __VA_ARGS__), abort()))
-#endif
-
 #ifndef ASSERTMSG
-#define ASSERTMSG ASSERT_MSG
+# define ASSERTMSG(x,msg,...)                                       \
+    ((x) ? ((void)0)                                                \
+         : (fprintf (stderr, "%s:%u: Failed assertion '" #x "': " msg "\n",  \
+                     __FILE__, __LINE__, __VA_ARGS__), abort()))
 #endif
 
 
 /// DASSERT(condition) is just like ASSERT, except that it only is
 /// functional in DEBUG mode, but does nothing when in a non-DEBUG
 /// (optimized, shipping) build.
-#ifndef NDEBUG
+#ifdef DEBUG
 # define DASSERT(x) ASSERT(x)
 #else
- /* DASSERT does nothing when not debugging; sizeof trick prevents warnings */
-# define DASSERT(x) ((void)sizeof(x))
+# define DASSERT(x) ((void)0) /* DASSERT does nothing when not debugging */
 #endif
 
-/// DASSERT_MSG(condition,msg,...) is just like ASSERT_MSG, except that it
+/// DASSERTMSG(condition,msg,...) is just like ASSERTMSG, except that it
 /// only is functional in DEBUG mode, but does nothing when in a
 /// non-DEBUG (optimized, shipping) build.
-#ifndef NDEBUG
-# define DASSERT_MSG ASSERT_MSG
+#ifdef DEBUG
+# define DASSERTMSG ASSERTMSG
 #else
-# define DASSERT_MSG(x,...) ((void)sizeof(x)) /* does nothing when not debugging */
+# define DASSERTMSG(...) ((void)0) /* does nothing when not debugging */
 #endif
-
-#ifndef DASSERTMSG
-#define DASSERTMSG DASSERT_MSG
-#endif
-
 
 
 #endif // OPENIMAGEIO_DASSERT_H

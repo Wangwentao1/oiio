@@ -55,7 +55,6 @@
 #include "sysutil.h"
 #include "strutil.h"
 #include "imagecache.h"
-#include "filesystem.h"
 
 OIIO_NAMESPACE_USING;
 
@@ -105,7 +104,7 @@ getargs (int argc, char *argv[])
     // full windowed mode (no console and no need to define WinMain)
     // FIXME: this should be done in CMakeLists.txt but first we have to
     // fix Windows Debug build
-# ifdef NDEBUG
+# ifndef DEBUG
 #  pragma comment(linker, "/subsystem:windows /entry:mainCRTStartup")
 # endif
 #endif
@@ -114,7 +113,6 @@ getargs (int argc, char *argv[])
 int
 main (int argc, char *argv[])
 {
-    Filesystem::convert_native_arguments (argc, (const char **)argv);
     getargs (argc, argv);
 
     if (! foreground_mode)
@@ -144,7 +142,7 @@ main (int argc, char *argv[])
     int r = app.exec();
     // OK to clean up here
 
-#ifdef NDEBUG
+#ifndef DEBUG
     if (verbose)
 #endif
     {

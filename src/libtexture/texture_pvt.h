@@ -274,10 +274,17 @@ private:
     /// Find the TextureFile record for the named texture, or NULL if no
     /// such file can be found.
     TextureFile *find_texturefile (ustring filename, PerThreadInfo *thread_info) {
-        TextureFile *texturefile = m_imagecache->find_file (filename, thread_info);
-        if (!texturefile || texturefile->broken())
-            error ("%s", m_imagecache->geterror().c_str());
+        // Per-thread microcache that prevents locking of the file mutex
+        TextureFile *texturefile = thread_info->find_file (filename);
+        if (! texturefile) {
+            // Fall back on the master cache
+            texturefile = m_imagecache->find_file (filename, thread_info);
+            if (!texturefile || texturefile->broken())
+                error ("%s", m_imagecache->geterror().c_str());
+            thread_info->filename (filename, texturefile);
+        }
         return texturefile;
+
     }
 
     /// Find the tile specified by id.  If found, return true and place
@@ -370,6 +377,14 @@ private:
                                  const Imath::V3f &_P, const Imath::V3f &_dPdx,
                                  const Imath::V3f &_dPdy, const Imath::V3f &_dPdz,
                                  float *result);
+	// The interface to read the openvdb voxels, so far we ignore the options and
+  // lookup the float data.
+	 bool texture3d_lookup_openvdb(TextureFile &texfile,
+									PerThreadInfo *thread_info,
+									TextureOpt &options,
+									const Imath::V3f &_P, const Imath::V3f &_dPdx,
+									const Imath::V3f &_dPdy, const Imath::V3f &_dPdz,
+									float *result);
     typedef bool (TextureSystemImpl::*accum3d_prototype)
                         (const Imath::V3f &P, int level,
                          TextureFile &texturefile, PerThreadInfo *thread_info,
@@ -406,10 +421,17 @@ private:
     /// results.
     bool missing_texture (TextureOpt &options, float *result);
 
-    /// Handle gray-to-RGB promotion.
-    void fill_gray_channels (const ImageSpec &spec, TextureOpt &options, float *result);
+    /// Correctly fill in channels that were requested but not present
+    /// in the file.
+    void fill_channels (const ImageSpec &spec, TextureOpt &options, float *result);
 
+    typedef bool (*wrap_impl) (int &coord, int origin, int width);
+    static bool wrap_black (int &coord, int origin, int width);
+    static bool wrap_clamp (int &coord, int origin, int width);
+    static bool wrap_periodic (int &coord, int origin, int width);
+    static bool wrap_periodic2 (int &coord, int origin, int width);
     static bool wrap_periodic_sharedborder (int &coord, int origin, int width);
+    static bool wrap_mirror (int &coord, int origin, int width);
     static const wrap_impl wrap_functions[];
 
     /// Helper function for lat-long environment maps: compute a "pole"
@@ -457,7 +479,8 @@ private:
     mutable thread_specific_ptr< std::string > m_errormessage;
     Filter1D *hq_filter;         ///< Better filter for magnification
     int m_statslevel;
-    friend class TextureSystem;
+    friend class ImageCacheFile;
+    friend class ImageCacheTile;
 };
 
 
@@ -533,7 +556,7 @@ TextureSystemImpl::st_to_texel (float s, float t, TextureFile &texturefile,
 
 
 
-}  // end namespace pvt
+};  // end namespace pvt
 
 }
 OIIO_NAMESPACE_EXIT

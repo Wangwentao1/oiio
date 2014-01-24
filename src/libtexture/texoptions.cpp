@@ -30,6 +30,8 @@
 
 #include <string>
 #include <boost/scoped_ptr.hpp>
+#include <boost/tr1/memory.hpp>
+using namespace std::tr1;
 
 #include "dassert.h"
 #include "typedesc.h"
@@ -62,7 +64,7 @@ static const ustring wrap_type_name[] = {
     ustring()
 };
 
-}  // end anonymous namespace
+};  // end anonymous namespace
 
 
 

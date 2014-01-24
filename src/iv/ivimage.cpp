@@ -33,7 +33,7 @@
 
 #include <boost/foreach.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <OpenEXR/half.h>
+#include <half.h>
 
 #include "imageviewer.h"
 #include "strutil.h"
@@ -59,7 +59,7 @@ IvImage::~IvImage ()
 
 
 bool
-IvImage::init_spec_iv (const std::string &filename, int subimage, int miplevel)
+IvImage::init_spec (const std::string &filename, int subimage, int miplevel)
 {
     // invalidate info strings
     m_shortinfo.clear ();
@@ -67,11 +67,11 @@ IvImage::init_spec_iv (const std::string &filename, int subimage, int miplevel)
 
     // If we're changing mip levels or subimages, the pixels will no
     // longer be valid.
-    if (subimage != this->subimage() || miplevel != this->miplevel())
+    if (subimage != m_current_subimage || miplevel != m_current_miplevel)
         m_image_valid = false;
     bool ok = ImageBuf::init_spec (filename, subimage, miplevel);
     if (ok && m_file_dataformat.basetype == TypeDesc::UNKNOWN) {
-        m_file_dataformat = spec().format;
+        m_file_dataformat = m_spec.format;
     }
     return ok;
 }
@@ -79,7 +79,7 @@ IvImage::init_spec_iv (const std::string &filename, int subimage, int miplevel)
 
 
 bool
-IvImage::read_iv (int subimage, int miplevel, bool force, TypeDesc format,
+IvImage::read (int subimage, int miplevel, bool force, TypeDesc format,
                ProgressCallback progress_callback,
                void *progress_callback_data, bool secondary_data)
 {
@@ -87,16 +87,18 @@ IvImage::read_iv (int subimage, int miplevel, bool force, TypeDesc format,
     // FIXME: should we also check the time on the file to see if it's
     // been updated since we last loaded?
     if (m_image_valid && !force
-        && subimage == this->subimage() && miplevel != this->miplevel())
+          && subimage == m_current_subimage && miplevel == m_current_miplevel)
         return true;
 
-    m_image_valid = init_spec_iv (name(), subimage, miplevel);
-    if (m_image_valid)
-        m_image_valid = ImageBuf::read (subimage, miplevel, force, format,
-                                        progress_callback, progress_callback_data);
+    // invalidate info strings
+    m_shortinfo.clear();
+    m_longinfo.clear();
 
-    if (m_image_valid && secondary_data && spec().format == TypeDesc::UINT8) {
-        m_corrected_image.reset ("", ImageSpec (spec().width, spec().height, std::min(spec().nchannels, 4), spec().format));
+    m_image_valid = ImageBuf::read (subimage, miplevel, force, format,
+                              progress_callback, progress_callback_data);
+
+    if (m_image_valid && secondary_data && m_spec.format == TypeDesc::UINT8) {
+        m_corrected_image.reset ("", ImageSpec (m_spec.width, m_spec.height, std::min(m_spec.nchannels, 4), m_spec.format));
     } else {
         m_corrected_image.clear ();
     }
@@ -109,13 +111,13 @@ std::string
 IvImage::shortinfo () const
 {
     if (m_shortinfo.empty()) {
-        m_shortinfo = Strutil::format ("%d x %d", spec().width, spec().height);
-        if (spec().depth > 1)
-            m_shortinfo += Strutil::format (" x %d", spec().depth);
+        m_shortinfo = Strutil::format ("%d x %d", m_spec.width, m_spec.height);
+        if (m_spec.depth > 1)
+            m_shortinfo += Strutil::format (" x %d", m_spec.depth);
         m_shortinfo += Strutil::format (" x %d channel %s (%.2f MB)",
-                                        spec().nchannels,
+                                        m_spec.nchannels,
                                         m_file_dataformat.c_str(),
-                                        (float)spec().image_bytes() / (1024.0*1024.0));
+                                        (float)m_spec.image_bytes() / (1024.0*1024.0));
     }
     return m_shortinfo;
 }
@@ -153,7 +155,6 @@ IvImage::longinfo () const
 {
     using Strutil::format;  // shorthand
     if (m_longinfo.empty()) {
-        const ImageSpec &m_spec (nativespec());
         m_longinfo += "<table>";
 //        m_longinfo += html_table_row (format("<b>%s</b>", m_name.c_str()).c_str(),
 //                                std::string());
@@ -281,14 +282,14 @@ IvImage::pixel_transform(bool srgb_to_linear, int color_mode, int select_channel
         239, 242, 244, 246, 248, 250, 253, 255
     };
     unsigned char correction_table[256];
-    int total_channels = spec().nchannels;
-    int color_channels = spec().nchannels;
+    int total_channels = m_spec.nchannels;
+    int color_channels = m_spec.nchannels;
     int max_channels = m_corrected_image.nchannels();
 
     // FIXME: Now with the iterator and data proxy in place, it should be
     // trivial to apply the transformations to any kind of data, not just
     // UINT8.
-    if (spec().format != TypeDesc::UINT8 || ! m_corrected_image.localpixels()) {
+    if (m_spec.format != TypeDesc::UINT8 || ! m_corrected_image.localpixels()) {
         return;
     }
 
@@ -395,11 +396,11 @@ IvImage::pixel_transform(bool srgb_to_linear, int color_mode, int select_channel
 
 void
 IvImage::invalidate ()
-{
-    ustring filename (name());
-    reset (filename.string());
+{ 
+    m_pixels_valid = false;
     m_thumbnail_valid = false;
     m_image_valid = false;
-    if (imagecache())
-        imagecache()->invalidate (filename);
+    if (m_imagecache) {
+        m_imagecache->invalidate (m_name);
+    }
 }
