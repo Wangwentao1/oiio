@@ -1,3 +1,4 @@
+
 /*
   Copyright 2008 Larry Gritz and the other authors and contributors.
   All Rights Reserved.
@@ -322,7 +323,9 @@ OpenEXRInput::OpenEXRInput ()
 bool
 OpenEXRInput::valid_file (const std::string &filename) const
 {
-    return Imf::isOpenExrFile (filename.c_str());
+	OpenEXRInputStream  tempStream(filename.c_str()); // use the filename directly here will cause the UTF-8 error£¬OIIO has handled UTF-8 for us
+													  // so we use the OpenEXRInputStream
+    return Imf::isOpenExrFile (tempStream);
 }
 
 
@@ -330,16 +333,10 @@ OpenEXRInput::valid_file (const std::string &filename) const
 bool
 OpenEXRInput::open (const std::string &name, ImageSpec &newspec)
 {
-    // Quick check to reject non-exr files
-    if (! Filesystem::is_regular (name)) {
-        error ("Could not open file \"%s\"", name.c_str());
-        return false;
-    }
-    bool tiled;
-    if (! Imf::isOpenExrFile (name.c_str(), tiled)) {
-        error ("\"%s\" is not an OpenEXR file", name.c_str());
-        return false;
-    }
+
+	// we igmore the boost regular file check for it is not suitable with UTF-8
+
+    bool tiled ;
 
     pvt::set_exr_threads ();
 
@@ -347,6 +344,12 @@ OpenEXRInput::open (const std::string &name, ImageSpec &newspec)
     
     try {
         m_input_stream = new OpenEXRInputStream (name.c_str());
+
+		// use the stream for check here for the same UTF-8 reason
+		if (! Imf::isOpenExrFile (*m_input_stream, tiled)) {
+			error ("\"%s\" is not an OpenEXR file", name.c_str());
+			return false;
+		}
     }
     catch (const std::exception &e) {
         m_input_stream = NULL;
