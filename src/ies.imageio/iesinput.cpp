@@ -44,11 +44,11 @@ OIIO_PLUGIN_NAMESPACE_BEGIN
 
 using namespace pvt;
 
-class IESInput:public IESInput_Interface{
+class IESInput:public IESInput_Interface {
 public:
 	IESInput() {}
 	virtual ~IESInput() {}
-	virtual const char * format_name(void) const {return "IES"; }
+	virtual const char * format_name(void) const { return "ies"; }
 	virtual bool valid_file(const std::string &filename) const;
 	virtual bool open(const std::string & name, ImageSpec & newSpec);
 	virtual bool sample(const Imath::V3f & dir, float & res);
@@ -72,7 +72,7 @@ ies_input_imageio_create()
 }
 
 OIIO_EXPORT const char * ies_input_extensions[] = {
-	"IES",NULL
+	"ies", NULL
 };
 
 OIIO_PLUGIN_EXPORTS_END
@@ -80,12 +80,14 @@ OIIO_PLUGIN_EXPORTS_END
 bool
 IESInput::valid_file(const std::string &filename) const
 {
-	if (!Filesystem::is_regular(filename)){
+	if (!Filesystem::is_regular(filename)) {
 		return false;
 	}
 	
 	PhotometricDataIES ies(filename.c_str());
+
 	bool ok = ies.isValid();
+	
 	return ok;
 }
 
@@ -94,14 +96,15 @@ IESInput::open(const std::string & name, ImageSpec & newSpec)
 {
 	reset();
 
-	if (!Filesystem::is_regular(name))
+	if (!Filesystem::is_regular(name)) {
 		return false;
-	bool ok = false;
-	mSampler.load(name.c_str(), true);
-	ok = mSampler.is_valid();
-	if(!ok)
-		return false;
-    return true;
+	}
+
+	mSampler.load(name.c_str(), false);
+
+	bool ok = mSampler.is_valid();
+
+	return ok;
 }
 
 bool
@@ -121,12 +124,9 @@ IESInput::read_native_scanline(int y, int z, void *data)
 bool 
 IESInput::sample(const Imath::V3f & dir, float& res)
 {
-	if(mSampler.is_valid())
-	{
-	    res = mSampler.sample(dir);
-		return true;
-	}
-	return false;
+	res = mSampler.sample(dir);
+
+	return true;
 }
 
 OIIO_PLUGIN_NAMESPACE_END

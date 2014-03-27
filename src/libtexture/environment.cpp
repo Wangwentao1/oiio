@@ -311,10 +311,9 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
     ImageCacheStatistics &stats (thread_info->m_stats);
     ++stats.environment_batches;
     ++stats.environment_queries;
-	 
-	const ustring s_ies ("IES");
+	const ustring s_ies ("ies");
 	const bool isIES = (texturefile->fileformat() == s_ies);
-
+	
     if (! texturefile  ||  texturefile->broken())
         return missing_texture (options, result);
 
@@ -345,8 +344,7 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
 	if(isIES)
 	{
 		IESInput_Interface *iesi = (IESInput_Interface *)texturefile->imageinput();
-		bool ok  = iesi->sample(_R, *result);
-		return ok;
+		return iesi->sample(_R, *result);
 	}
     // Calculate unit-length vectors in the direction of R, R+dRdx, R+dRdy.
     // These define the ellipse we're filtering over.

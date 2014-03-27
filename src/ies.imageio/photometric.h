@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OpenEXR/ImathVec.h>
 #include <OpenEXR/ImathFun.h>
 
+#include "filesystem.h"
+
 using std::memcpy;
 
 /************************************************************************/
@@ -71,10 +73,6 @@ inline float sphericalPhi(const Imath::V3f &v)
 	float p = atan2f(v.y, v.x);
 	return (p < 0.f) ? p + 2.f * (float)M_PI : p;
 }
-
-/************************************************************************/
-/* Photometric data and sampler class. Make reference to LUX renderer   */
-/************************************************************************/
 
 /***************************************************************************
 *   Copyright (C) 1998-2013 by authors (see AUTHORS.txt)                  *
@@ -104,6 +102,7 @@ public:
 	{
 		reset();
 	}
+
 	PhotometricDataIES(const char * sFileName)
 	{
 		reset();
@@ -112,7 +111,7 @@ public:
 
 	~PhotometricDataIES()
 	{
-		if(m_fsIES.is_open())
+		if (m_fsIES.is_open())
 		{
 			m_fsIES.close();
 		}
@@ -122,6 +121,7 @@ public:
 	{ 
 		return m_bValid; 
 	}
+
 	void reset()
 	{
 		m_bValid 	= false;
@@ -138,10 +138,11 @@ public:
 		}
 		m_fsIES.clear();
 	}
+
 	bool load(const char * sFileName)
 	{
 		bool ok = privateLoad(sFileName);
-		if(m_fsIES.is_open())
+		if (m_fsIES.is_open())
 		{
 			m_fsIES.close();
 		}
@@ -194,8 +195,8 @@ private:
 	bool privateLoad(const char * sFileName)
 	{
 		reset();
-		m_fsIES.open(sFileName);
-		if(!m_fsIES.good())
+		OIIO::Filesystem::open (m_fsIES, sFileName);
+		if (!m_fsIES.good())
 		{
 			return false;
 		}
@@ -205,7 +206,7 @@ private:
 
 		size_t vpos = templine.find_first_of("IESNA");
 
-		if(vpos != std::string::npos)
+		if (vpos != std::string::npos)
 		{
 			m_Version = templine.substr(templine.find_first_of(":") + 1);
 		}
@@ -215,12 +216,12 @@ private:
 		}
 
 		/////////////////////////////////////
-		if(!buildKeywordList())
+		if (!buildKeywordList())
 		{
 			return false;
 		}
 
-		if(!buildLightData())
+		if (!buildLightData())
 		{
 			return false;
 		}
@@ -232,7 +233,7 @@ private:
 
 	bool buildKeywordList()
 	{
-		if(!m_fsIES.good())
+		if (!m_fsIES.good())
 		{
 			return false;
 		}
@@ -244,18 +245,18 @@ private:
 		m_fsIES.seekg(0);
 		readLine(templine);
 
-		if(templine.find("IESNA") == std::string::npos)
+		if (templine.find("IESNA") == std::string::npos)
 		{
 			return false; // 
 		}
 
 		std::string sKey, sVal;
 
-		while(m_fsIES.good())
+		while (m_fsIES.good())
 		{
 			readLine(templine);
 
-			if(templine.find("TILT") != std::string::npos)
+			if (templine.find("TILT") != std::string::npos)
 			{
 				break;
 			}
@@ -285,7 +286,7 @@ private:
 			}
 		}
 		
-		if(!m_fsIES.good())
+		if (!m_fsIES.good())
 		{
 			return false;
 		}
@@ -294,6 +295,7 @@ private:
 
 		return true;
 	}
+
 	void buildDataLine(std::stringstream & ssLine, unsigned int nDoubles, std::vector<double> & vLine)
 	{
 		double dTemp = 0.0;
@@ -309,6 +311,7 @@ private:
 			count++;
 		}
 	}
+
 	bool buildLightData()
 	{
 		if (!m_fsIES.good())
@@ -481,7 +484,7 @@ public:
 		}
 
 		float *ptr = std::upper_bound(xFunc, xFunc + count, x);
-		const unsigned  int offset = static_cast<int>(ptr - xFunc - 1);
+		const unsigned int offset = static_cast<unsigned int>(ptr - xFunc - 1);
 
 		float d = (x - xFunc[offset]) / (xFunc[offset + 1] - xFunc[offset]);
 
@@ -500,8 +503,6 @@ private:
 	int count;
 };
 
-
-
 class PhotometricSampler
 {
 public:
@@ -511,6 +512,7 @@ public:
 		m_xres = 0;
 		m_yres = 0;
 	}
+
 	~PhotometricSampler()
 	{
 		clear();
@@ -694,7 +696,7 @@ public:
 	{
 		if (m_img == NULL)
 		{
-			return 1.0f;
+			return 0.0f;
 		}
 
 		// map from sphere to unit-square

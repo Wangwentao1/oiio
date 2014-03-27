@@ -77,7 +77,7 @@ ies_output_imageio_create ()
 OIIO_EXPORT int ies_imageio_version = OIIO_PLUGIN_VERSION;
 
 OIIO_EXPORT const char * ies_output_extensions[] = {
-	"IES", NULL
+	"ies", NULL
 };
 
 OIIO_PLUGIN_EXPORTS_END
