@@ -1,3 +1,13 @@
+README for OpenImageIO-Elara
+============================
+
+This is the OIIO branch we used for our own renderer usage. We add OpenVDB plugin and IES plugin support for our 
+own. In the same time modify the texture system to use these two file type. Meanwhile did some optimization job.
+
+* See openvdb.imageio folder for openvdb plugin implementation
+* See ies.imageio folder for IES plugin implementation
+
+
 README for OpenImageIO
 ======================
 
