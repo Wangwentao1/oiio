@@ -214,6 +214,7 @@ catalog_plugin (const std::string &format_name,
     PLUGENTRY (hdr);
     PLUGENTRY (ico);
     PLUGENTRY (iff);
+	PLUGENTRY (ies);
     PLUGENTRY (jpeg);
     PLUGENTRY (jpeg2000);
     PLUGENTRY (openexr);
@@ -264,6 +265,7 @@ catalog_builtin_plugins ()
     DECLAREPLUG (ico);
     DECLAREPLUG (iff);
     DECLAREPLUG (jpeg);
+	DECLAREPLUG (ies);
 #ifdef USE_OPENJPEG
     DECLAREPLUG (jpeg2000);
 #endif

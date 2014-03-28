@@ -100,7 +100,7 @@ IESInput::open(const std::string & name, ImageSpec & newSpec)
 		return false;
 	}
 
-	mSampler.load(name.c_str(), false);
+	mSampler.load(name.c_str(), true);
 
 	bool ok = mSampler.is_valid();
 
