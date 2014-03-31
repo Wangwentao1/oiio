@@ -28,21 +28,24 @@
   (This is the Modified BSD License)
 */
 
-
 OIIO_NAMESPACE_ENTER
 {
 
 namespace pvt {
 
+#define VDB_MAX_NUM_THREADS 64
+
 // Define an abstract interface that allows us to get special information
 // from the OpenVDBInput.
 class OpenVDBInput_Interface : public ImageInput {
 public:
-    OpenVDBInput_Interface () {}
+    OpenVDBInput_Interface() {}
+
 	virtual bool lookup_data(const Imath::V3d& wsP, ustring aGridName, float * aData, int actualchannels, int thread_index) = 0;
 };
 
 }; // end namespace pvt
 
 }
+
 OIIO_NAMESPACE_EXIT
