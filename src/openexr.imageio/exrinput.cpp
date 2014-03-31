@@ -95,8 +95,8 @@ public:
         // The reason we have this class is for this line, so that we
         // can correctly handle UTF-8 file paths on Windows
         Filesystem::open (ifs, filename, std::ios_base::binary);
-        if (!ifs)
-            Iex::throwErrnoExc ();
+        // if (!ifs)
+        //    Iex::throwErrnoExc ();
     }
     virtual bool read (char c[], int n) {
         if (!ifs)
