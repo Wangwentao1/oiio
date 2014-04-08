@@ -209,10 +209,12 @@ private:
 		if (vpos != std::string::npos)
 		{
 			m_Version = templine.substr(templine.find_first_of(":") + 1);
+			m_oldVersion = false;
 		}
-		else
+		
+		else //this is the old version without title
 		{
-			return false;
+			m_oldVersion = true;
 		}
 
 		/////////////////////////////////////
@@ -247,7 +249,9 @@ private:
 
 		if (templine.find("IESNA") == std::string::npos)
 		{
-			return false; // 
+			m_oldVersion = true;
+
+			return true;// dont treat the old version 
 		}
 
 		std::string sKey, sVal;
@@ -432,6 +436,7 @@ private:
 
 	bool 			m_bValid;
 	std::ifstream	m_fsIES;
+	bool            m_oldVersion;
 };
 
 
