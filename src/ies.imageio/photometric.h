@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OpenEXR/ImathFun.h>
 
 #include "filesystem.h"
-
 using std::memcpy;
 
 /************************************************************************/
@@ -70,8 +69,10 @@ inline float sphericalTheta(const Imath::V3f &v)
 
 inline float sphericalPhi(const Imath::V3f &v)
 {
-	float p = atan2f(v.y, v.x);
-	return (p < 0.f) ? p + 2.f * (float)M_PI : p;
+	float phi = (v.z == 0.f && v.y == 0.f) ? 0.0f : atan2f(v.y, v.x);
+	if(phi < 0)
+		phi += 2.0f * M_PI;
+	return phi;
 }
 
 /***************************************************************************
@@ -155,6 +156,7 @@ public:
 		memset(&sLine[0], 0, sLine.size());
 		m_fsIES.getline(&sLine[0], sLine.size(), 0x0A);
 	}
+
 
 	//////////////////////////////////////////////
 	// Keywords and light descriptions.
@@ -419,7 +421,7 @@ private:
 		buildDataLine(ssIES, m_NumberOfHorizontalAngles, m_HorizontalAngles);
 
 		m_CandelaValues.clear();
-
+			
 		std::vector<double> vTemp;
 
 		for (unsigned int n1 = 0; n1 < m_NumberOfHorizontalAngles; n1++)
@@ -636,9 +638,9 @@ public:
 		float valueScale = data.m_CandelaMultiplier * 
 			data.BallastFactor * 
 			data.BallastLampPhotometricFactor;
-		int nVFuncs = horizAngles.size();
+		unsigned int nVFuncs = horizAngles.size();
 		IrregularFunction1D** vFuncs = new IrregularFunction1D*[nVFuncs];
-		int vFuncLength = vertAngles.size();
+		unsigned int vFuncLength = vertAngles.size();
 		float* vFuncX = new float[vFuncLength];
 		float* vFuncY = new float[vFuncLength];
 		float* uFuncX = new float[nVFuncs];
@@ -653,7 +655,8 @@ public:
 
 			vFuncs[i] = new IrregularFunction1D(vFuncX, vFuncY, vFuncLength);
 
-			uFuncX[i] = Imath::clamp((float)OIIO::radians(horizAngles[i]) * (float)M_2_PI, 0.f, 1.f);
+			const float inv_2PI = 1.0f / (M_PI * 2.0f);
+			uFuncX[i] = Imath::clamp((float)OIIO::radians(horizAngles[i]) * inv_2PI, 0.f, 1.f);
 			uFuncY[i] = i;
 		}
 		delete[] vFuncX;
@@ -674,11 +677,10 @@ public:
 			{
 				const float s = (x + .5f) / xRes;
 				const float u = uFunc->eval(s);
-				const int iu  = floor2UInt(u);
-				const int u1 = std::min(nVFuncs - 1, iu);
-				const int u2 = std::min(nVFuncs - 1, iu + 1);
+				const unsigned int u1 = floor2UInt(u);
+				const unsigned int u2 = std::min(nVFuncs - 1, u1 + 1);
 				const float du = u - u1;
-				const int tgtY = flip_z ? (yRes - 1) - y : y;
+				const unsigned int tgtY = flip_z ? (yRes - 1) - y : y;
 				img[x + tgtY * xRes] = Imath::lerp(vFuncs[u1]->eval(t),
 					vFuncs[u2]->eval(t), du);
 			}
@@ -764,6 +766,8 @@ private:
 
 		return m_img[wy * m_xres + wx];
 	}
+
+	
 
 	float *m_img;
 	unsigned int m_xres;
