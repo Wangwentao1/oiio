@@ -762,7 +762,7 @@ private:
 	inline float get(int x, int y) const
 	{
 		const int wx = mod(x, m_xres);
-		const int wy = mod(y, m_yres);
+		const int wy = Imath::clamp(y, 0, (int)m_yres - 1);
 
 		return m_img[wy * m_xres + wx];
 	}
